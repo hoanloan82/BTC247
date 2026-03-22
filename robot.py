@@ -26,7 +26,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 FILE_DA_GUI = "da_gui.json"
 
 # ============================================================
-# 2. LOGGING (Báo cáo tiến trình ra màn hình GitHub)
+# 2. LOGGING
 # ============================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 
 # ============================================================
-# 3. QUẢN LÝ TRẠNG THÁI — Tránh gửi trùng lặp
+# 3. QUẢN LÝ TRẠNG THÁI
 # ============================================================
 def tai_ds_da_gui() -> set:
     try:
@@ -53,7 +53,7 @@ def luu_ds_da_gui(ds: set):
 
 
 # ============================================================
-# 4. GỬI TELEGRAM API
+# 4. GỬI TELEGRAM
 # ============================================================
 def gui_telegram(msg: str) -> bool:
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -87,8 +87,8 @@ def chay_robot():
     driver    = None
 
     try:
-        # --- BƯỚC 1: KHỞI ĐỘNG CHROME ---
-        log.info("1. Khởi động Chrome (Headless)...")
+        # 1. Khởi động Chrome Headless
+        log.info("1. Khởi động Chrome...")
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
@@ -102,7 +102,7 @@ def chay_robot():
         )
         wait = WebDriverWait(driver, 20)
 
-        # --- BƯỚC 2: ĐĂNG NHẬP ---
+        # 2. Đăng nhập
         log.info("2. Đăng nhập hệ thống...")
         driver.get(URL_LOGIN)
         wait.until(EC.presence_of_element_located((By.NAME, "Username")))
@@ -116,34 +116,36 @@ def chay_robot():
             driver.execute_script("document.forms[0].submit()")
         time.sleep(5)
 
-        # --- BƯỚC 3: VÀO DANH SÁCH & XỬ LÝ FRAME MAIN ---
+        # 3. Truy cập danh sách
         log.info("3. Truy cập danh sách văn bản chờ xử lý...")
         driver.get(URL_DANH_SACH)
-        time.sleep(3)
+        time.sleep(5) # Cho web cơ quan load một chút
 
-        log.info("Đang tìm và chuyển vào Frame 'Main'...")
+        # KỸ THUẬT ÉP BUỘC CHỜ ĐỢI FRAME "MAIN"
+        log.info("Đang tìm và nhảy vào Frame 'Main'...")
         khung_chinh_thanh_cong = False
 
-        for thu_lai in range(3): # Thử lại 3 lần nếu GitHub load chậm
+        for thu_lai in range(3):
             try:
-                # Ép buộc đợi Frame 'Main' hiển thị rồi mới nhảy vào
-                WebDriverWait(driver, 15).until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
-                log.info(f"✅ Đã vào Frame 'Main' thành công (Lần thử {thu_lai + 1})")
+                # Chờ tối đa 20 giây cho frame "Main" xuất hiện và nhảy vào đó
+                WebDriverWait(driver, 20).until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
+                log.info(f"✅ Đã vào Frame 'Main' thành công ở lần thử {thu_lai + 1}")
                 khung_chinh_thanh_cong = True
                 break
             except Exception:
                 log.warning(f"Chưa thấy Frame 'Main', thử lại lần {thu_lai + 1}...")
-                time.sleep(4)
+                time.sleep(5)
 
         if not khung_chinh_thanh_cong:
             log.error("❌ Không thể vào Frame 'Main' sau 3 lần thử. Dừng quét!")
             gui_telegram("⚠️ <b>Robot lỗi:</b> Không load được khung danh sách văn bản (Frame Main).")
             return
 
-        # --- BƯỚC 4: PHÂN TÍCH BẢNG DỮ LIỆU ---
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
+        # 4. Phân tích bảng dữ liệu
         log.info("4. Đang phân tích dữ liệu bảng...")
-        rows      = driver.find_elements(By.TAG_NAME, "tr")
+        # Chờ bảng (các hàng TR) hiện ra trong Frame
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
+        rows = driver.find_elements(By.TAG_NAME, "tr")
         ds_vb_moi = []
 
         for row in rows:
@@ -151,19 +153,19 @@ def chay_robot():
             if len(tds) >= 7:
                 txt = row.text.strip()
                 if "/" in txt and "Số ký hiệu" not in txt:
-                    # Chỉnh sửa cột lấy dữ liệu chính xác theo giao diện bảng của Sở
-                    so_kh     = tds[4].text.strip()   # Cột 5: Số ký hiệu
-                    trich_yeu = tds[6].text.strip()   # Cột 7: Trích yếu
+                    # Lấy dữ liệu cột Số hiệu và Trích yếu
+                    so_kh     = tds[4].text.strip()   # Cột 5
+                    trich_yeu = tds[6].text.strip()   # Cột 7
                     
                     if so_kh and so_kh not in ds_da_gui:
                         ds_vb_moi.append(f"📍 Số: <b>{so_kh}</b>\n📝 {trich_yeu}")
                         ds_da_gui.add(so_kh)
 
-        # --- BƯỚC 5: GỬI TIN NHẮN THÔNG BÁO ---
+        # 5. Thông báo Telegram
         if ds_vb_moi:
             so_luong  = len(ds_vb_moi)
             thoi_gian = datetime.now().strftime("%H:%M %d/%m/%Y")
-            noi_dung  = "\n---\n".join(ds_vb_moi[:5]) # Giới hạn 5 văn bản mới nhất để tránh spam
+            noi_dung  = "\n---\n".join(ds_vb_moi[:5])
             msg = (
                 f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾN MỚI</b>\n"
                 f"⏰ Cập nhật: {thoi_gian}\n\n"
