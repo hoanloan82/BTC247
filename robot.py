@@ -16,6 +16,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 # 1. CẤU HÌNH — Đọc từ GitHub Secrets
 # ============================================================
 URL_LOGIN     = "https://hscvkhcn.dienbien.gov.vn/names.nsf?Login"
+URL_DANH_SACH = "https://hscvkhcn.dienbien.gov.vn/qlvb/vbden.nsf/default?openform&frm=Private_ChoXL?openForm"
 
 USER_NAME        = os.environ.get("SKHCN_USER", "")
 PASS_WORD        = os.environ.get("SKHCN_PASS", "")
@@ -86,14 +87,13 @@ def chay_robot():
     driver    = None
 
     try:
-        log.info("1. Khởi động Chrome...")
+        log.info("1. Khởi động Chrome Headless...")
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
-        # Giả lập User Agent giống người dùng thật để máy chủ không đá
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
         driver = webdriver.Chrome(
@@ -114,48 +114,49 @@ def chay_robot():
             driver.find_element(By.XPATH, "//input[@type='submit']").click()
         except Exception:
             driver.execute_script("document.forms[0].submit()")
-        time.sleep(10) # Đợi điều hướng về trang chủ sau đăng nhập
-
-        # 3. THAY VÌ DÙNG LINK TRỰC TIẾP, ROBOT TỰ CLICK TỪ TRANG CHỦ
-        log.info("3. Tìm kiếm danh sách văn bản...")
         
-        # Thử tìm tất cả khung Frame trên trang để bám vào
+        log.info("Đang chờ 15 giây để đăng nhập hoàn tất...")
+        time.sleep(15)
+
+        # 3. TRUY CẬP DANH SÁCH
+        log.info("3. Truy cập danh sách văn bản...")
+        driver.get(URL_DANH_SACH)
+        
+        log.info("Đang ngủ đông 30 giây để trang web tải hết các Khung (Frame)...")
+        time.sleep(30) # <<< Ép buộc dừng 30 giây để máy chủ Sở kịp tải
+
         driver.switch_to.default_content()
-        all_frames = driver.find_elements(By.XPATH, "//frame | //iframe")
-        log.info(f"Phát hiện tổng số {len(all_frames)} khung lồng nhau.")
 
+        # Thử nhảy vào Frame 'Main'
         khung_chinh_thanh_cong = False
+        try:
+            wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
+            log.info("✅ Đã nhảy vào Frame 'Main' thành công!")
+            khung_chinh_thanh_cong = True
+        except Exception:
+            log.warning("Chưa bám được vào Frame 'Main', thử quét dạo tìm Iframe...")
 
-        # Quét dạo các frame để tìm xem thằng nào chứa bảng dữ liệu văn bản
-        for idx, f in enumerate(all_frames):
-            try:
-                driver.switch_to.default_content()
-                driver.switch_to.frame(f)
-                
-                rows_check = driver.find_elements(By.TAG_NAME, "tr")
-                # Bảng văn bản chờ xử lý thường có nhiều dòng (trên 5 dòng)
-                if len(rows_check) > 5:
-                    log.info(f"✅ Đã tìm thấy khung chứa dữ liệu (Khung số {idx + 1})")
-                    khung_chinh_thanh_cong = True
-                    break
-            except Exception:
-                continue
-
-        # Phương án dự phòng: Nếu duyệt dạo thất bại, gọi đích danh Frame "Main"
+        # Dự phòng: Tự động lùng sục tất cả các Iframe nếu bám trực tiếp thất bại
         if not khung_chinh_thanh_cong:
-            log.warning("Duyệt tự động thất bại. Thử cưỡng bức nhảy vào frame 'Main'...")
-            driver.switch_to.default_content()
-            try:
-                wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
-                log.info("✅ Vào frame 'Main' bằng phương án dự phòng thành công.")
-                khung_chinh_thanh_cong = True
-            except Exception:
-                log.error("❌ Không thể bám trụ vào bất kỳ Khung làm việc nào!")
+            frames = driver.find_elements(By.XPATH, "//frame | //iframe")
+            log.info(f"Dò tìm thấy {len(frames)} khung lồng ghép trên trang.")
+            
+            for i, f in enumerate(frames):
+                try:
+                    driver.switch_to.default_content()
+                    driver.switch_to.frame(f)
+                    
+                    rows_check = driver.find_elements(By.TAG_NAME, "tr")
+                    if len(rows_check) > 5:
+                        log.info(f"✅ Phát hiện khung thứ {i+1} có chứa dữ liệu văn bản!")
+                        khung_chinh_thanh_cong = True
+                        break
+                except Exception:
+                    continue
 
         if not khung_chinh_thanh_cong:
-            # Chụp một bức ảnh của trang lỗi (nếu cần gỡ lỗi sau này)
-            driver.save_screenshot("screenshot_loi_frame.png")
-            gui_telegram("⚠️ <b>Robot lỗi:</b> Kẹt ở lớp giao diện chính (Lotus Domino session timeout).")
+            log.error("❌ Không thể bám trụ vào bất kỳ Khung làm việc nào. Hủy phiên quét!")
+            gui_telegram("⚠️ <b>Robot lỗi:</b> Kẹt ở lớp giao diện chính (Không tìm thấy Frame bảng).")
             return
 
         # 4. PHÂN TÍCH BẢNG DỮ LIỆU
@@ -164,13 +165,12 @@ def chay_robot():
         rows = driver.find_elements(By.TAG_NAME, "tr")
         ds_vb_moi = []
 
-        log.info(f"Tổng số dòng trích xuất: {len(rows)}")
+        log.info(f"Trích xuất thành công {len(rows)} hàng thô.")
 
         for row in rows:
             tds = row.find_elements(By.TAG_NAME, "td")
             if len(tds) >= 7:
                 txt = row.text.strip()
-                # Chỉ lọc những hàng chứa dấu gạch chéo ký hiệu "/" (Ví dụ: 123/UBND)
                 if "/" in txt and "Số ký hiệu" not in txt:
                     so_kh     = tds[4].text.strip()   # Cột 5 (Số hiệu)
                     trich_yeu = tds[6].text.strip()   # Cột 7 (Trích yếu)
@@ -185,7 +185,7 @@ def chay_robot():
             thoi_gian = datetime.now().strftime("%H:%M %d/%m/%Y")
             noi_dung  = "\n---\n".join(ds_vb_moi[:5])
             msg = (
-                f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾN MỚI</b>\n"
+                f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾM MỚI</b>\n"
                 f"⏰ Cập nhật: {thoi_gian}\n\n"
                 f"{noi_dung}"
             )
@@ -193,7 +193,7 @@ def chay_robot():
             gui_telegram(msg)
             luu_ds_da_gui(ds_da_gui)
         else:
-            log.info("✅ Không có văn bản mới sau khi phân tích bảng.")
+            log.info("✅ Không có văn bản mới sau khi bóc tách.")
 
     except Exception as e:
         log.error(f"❌ Lỗi nghiêm trọng: {e}", exc_info=True)
