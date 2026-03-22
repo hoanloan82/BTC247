@@ -130,11 +130,11 @@ def chay_robot():
 
         for row in rows:
             tds = row.find_elements(By.TAG_NAME, "td")
-            if len(tds) >= 6:
+            if len(tds) >= 7:
                 txt = row.text.strip()
                 if "/" in txt and "Số ký hiệu" not in txt:
-                    so_kh     = tds[3].text.strip()
-                    trich_yeu = tds[5].text.strip()
+                    so_kh     = tds[4].text.strip()   # Cột 5: Số ký hiệu
+                    trich_yeu = tds[6].text.strip()   # Cột 7: Trích yếu
                     if so_kh and so_kh not in ds_da_gui:
                         ds_vb_moi.append(f"📍 Số: {so_kh}\n📝 {trich_yeu}")
                         ds_da_gui.add(so_kh)
