@@ -1,6 +1,5 @@
 import time
 import os
-import json
 import logging
 import requests
 import re
@@ -14,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ============================================================
-# 1. CẤU HÌNH — Đọc từ GitHub Secrets
+# CẤU HÌNH — Đọc từ GitHub Secrets
 # ============================================================
 URL_LOGIN     = "https://hscvkhcn.dienbien.gov.vn/names.nsf?Login"
 URL_DANH_SACH = "https://hscvkhcn.dienbien.gov.vn/qlvb/vbden.nsf/default?openform&frm=Private_ChoXL?openForm"
@@ -24,30 +23,13 @@ PASS_WORD        = os.environ.get("SKHCN_PASS", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-FILE_DA_GUI = "da_gui.json"
 
-# ============================================================
-# 2. LOGGING
-# ============================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler()]
 )
 log = logging.getLogger(__name__)
-
-
-def tai_ds_da_gui() -> set:
-    try:
-        with open(FILE_DA_GUI, "r", encoding="utf-8") as f:
-            return set(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
-
-
-def luu_ds_da_gui(ds: set):
-    with open(FILE_DA_GUI, "w", encoding="utf-8") as f:
-        json.dump(list(ds), f, ensure_ascii=False, indent=2)
 
 
 def gui_telegram(msg: str) -> bool:
@@ -64,20 +46,16 @@ def gui_telegram(msg: str) -> bool:
     except Exception:
         return False
 
-# Hàm thông minh kiểm tra xem chuỗi có phải là Số hiệu công văn chuẩn không
 def la_so_hieu_chuan(text: str) -> bool:
     if not text: return False
-    # Nếu là Ngày tháng thuần túy (dd/mm/yyyy) -> Loại ngay không lấy làm số hiệu
     if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', text): return False
-    # Tiêu chuẩn số hiệu: Chứa dấu / và dài trên 3 ký tự (Ví dụ: 123/UBND, 45/KH)
     if "/" in text and len(text) >= 4: return True
     return False
 
 
 def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN ---")
+    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN (CHẾ ĐỘ TEST) ---")
     driver = None
-    ds_da_gui = tai_ds_da_gui()
 
     try:
         options = Options()
@@ -108,7 +86,6 @@ def chay_robot():
 
         driver.switch_to.default_content()
         wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
-        log.info("✅ Đã vào Frame 'Main' thành công!")
 
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
         rows = driver.find_elements(By.TAG_NAME, "tr")
@@ -122,52 +99,40 @@ def chay_robot():
             ngay_den   = ""
             trich_yeu = ""
 
-            # Quét qua từng ô <td> của dòng để tự phân loại thông minh
             for td in tds:
                 txt = td.text.strip()
                 if not txt: continue
 
-                # 1. Nhận diện Số hiệu (Có / và kẹp chữ)
                 if la_so_hieu_chuan(txt) and not so_kh:
                     so_kh = txt
                     continue
 
-                # 2. Nhận diện Ngày tháng (Dạng dd/mm/yyyy)
                 if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', txt) and not ngay_den:
                     ngay_den = txt
                     continue
 
-                # 3. Nhận diện Trích yếu (Là đoạn text dài nhất và không có dấu /)
                 if len(txt) > len(trich_yeu) and "số ký hiệu" not in txt.lower():
-                    # Trích yếu thường dài, không phải ngày tháng, không phải số hiệu
                     if len(txt) > 12 and not la_so_hieu_chuan(txt) and not re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', txt):
                         trich_yeu = txt
 
-            # Nếu tự bóc tách ra được Số hiệu hợp lệ thì mới gửi
-            if so_kh and so_kh not in ds_da_gui:
+            if so_kh: # Bỏ qua biến kiểm tra trùng lặp để ép gửi test!
                 if not trich_yeu: trich_yeu = "(Không bóc tách được trích yếu)"
-                if not ngay_den: ngay_den = "Không rõ"
-
                 ds_vb_moi.append(
                     f"📍 Số hiệu: <b>{so_kh}</b>\n"
                     f"📅 Ngày đến: <b>{ngay_den}</b>\n"
                     f"📝 Trích yếu: {trich_yeu}"
                 )
-                ds_da_gui.add(so_kh)
 
         if ds_vb_moi:
-            so_luong = len(ds_vb_moi)
-            noi_dung = "\n---\n".join(ds_vb_moi[:10]) 
+            # Lấy tầm 5 cái để test xem mặt mũi tin nhắn thế nào
+            noi_dung = "\n---\n".join(ds_vb_moi[:5]) 
             msg = (
-                f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾN MỚI</b>\n"
+                f"🚀 <b>TEST ROBOT THÔNG MINH (ÉP GỬI ĐỂ XEM TRÍCH YẾU)</b>\n"
                 f"⏰ Cập nhật: {datetime.now().strftime('%H:%M %d/%m/%Y')}\n\n"
                 f"{noi_dung}"
             )
             gui_telegram(msg)
-            luu_ds_da_gui(ds_da_gui)
-            log.info(f"🔥 Đã đẩy {so_luong} văn bản thông minh lên Telegram!")
-        else:
-            log.info("✅ Không có văn bản mới hoặc bảng rỗng.")
+            log.info("🔥 Đã ép bắn tin nhắn test lên Telegram!")
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
