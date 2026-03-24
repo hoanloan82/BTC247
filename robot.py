@@ -2,7 +2,6 @@ import time
 import os
 import json
 import logging
-import re
 import requests
 from datetime import datetime
 from selenium import webdriver
@@ -67,17 +66,9 @@ def gui_telegram(msg: str) -> bool:
     except Exception:
         return False
 
-# Hàm kiểm tra xem 1 chuỗi có phải là Số ký hiệu chuẩn Việt Nam hay không (Chứa dấu / và chữ)
-def la_so_ky_hieu(text: str) -> bool:
-    if not text: return False
-    # Nếu là ngày tháng năm thuần túy (dd/mm/yyyy) -> Loại bỏ ngay không lấy làm số hiệu
-    if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', text): return False
-    # Tiêu chuẩn số hiệu VN thường có dấu / và đi kèm chữ cái viết hoa (VD: /UBND, /KH, /STC)
-    if "/" in text and len(text) >= 4: return True
-    return False
 
 # ============================================================
-# 4. ROBOT CHÍNH
+# 4. ROBOT CHÍNH (Chạy không màn hình trên GitHub)
 # ============================================================
 def chay_robot():
     log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN ---")
@@ -90,26 +81,28 @@ def chay_robot():
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--window-size=1920,1080") # Khóa chết kích thước màn hình HD để bảng không bị co giãn
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
         wait = WebDriverWait(driver, 30)
 
-        # Đăng nhập
+        # 1. Đăng nhập
         driver.get(URL_LOGIN)
         wait.until(EC.presence_of_element_located((By.NAME, "Username")))
+        
         driver.find_element(By.NAME, "Username").send_keys(USER_NAME)
         driver.find_element(By.NAME, "Password").send_keys(PASS_WORD)
+        
         try:
             driver.find_element(By.XPATH, "//input[@type='submit']").click()
         except Exception:
             driver.execute_script("document.forms[0].submit()")
         time.sleep(15)
 
-        # Vào danh sách
+        # 2. Vào bảng danh sách văn bản
         driver.get(URL_DANH_SACH)
-        time.sleep(30)
+        time.sleep(30) # Chờ tải giao diện
 
         driver.switch_to.default_content()
         wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
@@ -117,51 +110,34 @@ def chay_robot():
 
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
         rows = driver.find_elements(By.TAG_NAME, "tr")
-
         ds_vb_moi = []
+
+        log.info(f"Tổng số hàng tìm thấy: {len(rows)}")
 
         for row in rows:
             tds = row.find_elements(By.TAG_NAME, "td")
-            if len(tds) < 5: continue
+            if len(tds) < 8: continue # Bỏ qua nếu dòng không đủ số cột theo mẫu 1.1 của anh
 
-            # THUẬT TOÁN TỰ ĐỘNG PHÂN LOẠI CHỮ THÔNG MINH
-            so_kh = ""
-            trich_yeu = ""
-            han_xl = "Không có hạn"
+            text_dong = row.text.strip()
+            if "Số ký hiệu" in text_dong or "/" not in text_dong: continue
 
-            for td in tds:
-                txt = td.text.strip()
-                if not txt: continue
+            # --- ÁP DỤNG ĐÚNG THỨ TỰ CỘT TỪ FILE 1.1 CỦA ANH ---
+            # Do Selenium đếm từ 0, nên tds[5] của anh ứng với cột thứ 6, tds[7] ứng với cột thứ 8
+            so_kh     = tds[5].text.strip()
+            ngay_den   = tds[4].text.strip()
+            trich_yeu = tds[7].text.strip()
 
-                # 1. Nếu là Số ký hiệu chuẩn (Có dấu / và không phải ngày tháng năm thuần túy)
-                if la_so_ky_hieu(txt) and not so_kh:
-                    so_kh = txt
-                    continue
-
-                # 2. Nếu là Trích yếu (Đoạn chữ dài nhất trong các cột)
-                if len(txt) > len(trich_yeu) and "số ký hiệu" not in txt.lower() and not la_so_ky_hieu(txt):
-                    # Thường trích yếu dài trên 15 ký tự và không phải định dạng ngày đến
-                    if len(txt) > 15 and not re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', txt):
-                        trich_yeu = txt
-
-                # 3. Nếu là thời hạn xử lý (Có chữ hạn hoặc dạng ngày tháng năm xuất hiện sau trích yếu)
-                if re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', txt) and trich_yeu:
-                    han_xl = txt
-
-            # Kiểm tra nếu bốc được Số ký hiệu thì mới cho vào danh sách gửi
             if so_kh and so_kh not in ds_da_gui:
-                if not trich_yeu: trich_yeu = "(Không bóc tách được trích yếu)"
-                
                 ds_vb_moi.append(
                     f"📍 Số hiệu: <b>{so_kh}</b>\n"
-                    f"📝 Trích yếu: {trich_yeu}\n"
-                    f"⏳ Hạn xử lý: <b>{han_xl}</b>"
+                    f"📅 Ngày đến: <b>{ngay_den}</b>\n"
+                    f"📝 Trích yếu: {trich_yeu}"
                 )
                 ds_da_gui.add(so_kh)
 
         if ds_vb_moi:
             so_luong = len(ds_vb_moi)
-            # Lấy 10 cái để tránh spam
+            # Lấy 10 tin nhắn mới nhất
             noi_dung = "\n---\n".join(ds_vb_moi[:10]) 
             msg = (
                 f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾN MỚI</b>\n"
@@ -170,9 +146,9 @@ def chay_robot():
             )
             gui_telegram(msg)
             luu_ds_da_gui(ds_da_gui)
-            log.info(f"🔥 Đã đẩy {so_luong} văn bản chuẩn lên Telegram!")
+            log.info(f"🔥 Đã đẩy {so_luong} văn bản lên Telegram!")
         else:
-            log.info("✅ Không có văn bản mới (Trùng lặp hoặc bảng rỗng).")
+            log.info("✅ Không có văn bản mới hoặc bảng rỗng.")
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
