@@ -1,9 +1,10 @@
 import time
 import os
+import json
 import logging
 import requests
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -13,7 +14,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ============================================================
-# 1. CẤU HÌNH — Đọc từ GitHub Secrets
+# 1. CẤU HÌNH & THƯ VIỆN LOGGING
 # ============================================================
 URL_LOGIN     = "https://hscvkhcn.dienbien.gov.vn/names.nsf?Login"
 URL_DANH_SACH = "https://hscvkhcn.dienbien.gov.vn/qlvb/vbden.nsf/default?openform&frm=Private_ChoXL?openForm"
@@ -23,9 +24,23 @@ PASS_WORD        = os.environ.get("SKHCN_PASS", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+FILE_DA_GUI = "da_gui.json"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
+
+
+def tai_ds_da_gui() -> set:
+    try:
+        with open(FILE_DA_GUI, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def luu_ds_da_gui(ds: set):
+    with open(FILE_DA_GUI, "w", encoding="utf-8") as f:
+        json.dump(list(ds), f, ensure_ascii=False, indent=2)
 
 
 def gui_telegram(msg: str) -> bool:
@@ -37,15 +52,26 @@ def gui_telegram(msg: str) -> bool:
     except Exception:
         return False
 
-# Kiểm tra ngày tháng năm dd/mm/yyyy
+
 def la_ngay_thang(txt: str) -> bool:
     t = txt.replace("(", "").replace(")", "").strip()
     return bool(re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', t))
 
 
+def chuyen_chuoi_thanh_ngay(txt_ngay: str):
+    """Đổi chuỗi 'dd/mm/yyyy' thành đối tượng datetime để tính toán"""
+    try:
+        clean_txt = txt_ngay.replace("(", "").replace(")", "").strip()
+        return datetime.strptime(clean_txt, "%d/%m/%Y")
+    except ValueError:
+        return None
+
+
 def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN (PHÂN TÁCH CHUỖI CHUẨN) ---")
+    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2 (Click chi tiết & Tính hạn gấp) ---")
     driver = None
+    ds_da_gui = tai_ds_da_gui()
+    ngay_hom_nay = datetime.now()
 
     try:
         options = Options()
@@ -57,6 +83,7 @@ def chay_robot():
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
         wait = WebDriverWait(driver, 30)
 
+        # 🚀 Bước 1: Đăng nhập
         driver.get(URL_LOGIN)
         wait.until(EC.presence_of_element_located((By.NAME, "Username")))
         driver.find_element(By.NAME, "Username").send_keys(USER_NAME)
@@ -67,78 +94,122 @@ def chay_robot():
             driver.execute_script("document.forms[0].submit()")
         time.sleep(15)
 
+        # 🚀 Bước 2: Vào danh sách bảng chính
         driver.get(URL_DANH_SACH)
-        time.sleep(35)
+        time.sleep(30)
 
         driver.switch_to.default_content()
         wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
 
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
         rows = driver.find_elements(By.TAG_NAME, "tr")
-        ds_vb_moi = []
+        
+        vb_khan = []
+        vb_thuong = []
 
+        # 🚀 Bước 3: Thu thập các văn bản ngoài bảng trước
+        danh_sach_cho_bam = []
         for row in rows:
             txt_row = row.text.strip()
             if not txt_row or "số ký hiệu" in txt_row.lower() or "/" not in txt_row:
                 continue
 
-            # Cắt nhỏ dòng chữ thành các từ riêng biệt
             parts = txt_row.split()
-            if len(parts) < 6: continue
+            if len(parts) < 4: continue
 
+            # Lấy Số ký hiệu (Mò cụm có chứa '/')
             so_hieu = ""
             ngay_den = ""
-            trich_yeu = ""
-            han_xl = "Không có"
-
-            # 🔍 Thuật toán bóc tách theo vị trí dòng của Lotus:
-            # - Phần tử 0: Số đến nội bộ
-            # - Phần tử 1: Ngày đến (dd/mm/yyyy)
-            # - Phần tử 2: (Ngày chuyển) -> Bỏ qua
-
-            if len(parts) > 1 and la_ngay_thang(parts[1]):
-                ngay_den = parts[1]
-
-            # Quét tìm Số hiệu và Trích yếu thực sự
-            for i in range(len(parts)):
-                p = parts[i]
-                # Nếu từ có chứa '/' và ko phải ngày tháng đơn thuần -> đích thị là Số ký hiệu văn bản!
+            for i, p in enumerate(parts):
+                if la_ngay_thang(p) and not ngay_den:
+                    ngay_den = p
                 if "/" in p and not la_ngay_thang(p) and not so_hieu:
                     so_hieu = p
-                    
-                    # 💥 TRÍCH YẾU sẽ bắt đầu ngay sau Cơ quan ban hành (Cơ quan ban hành nằm sau Số hiệu)
-                    # Chúng ta gom tất cả các từ từ vị trí Số hiệu + 3 từ trở đi (bỏ qua cơ quan ban hành ngắn như UBND tỉnh...)
-                    start_trich_yeu = i + 3 if "ubnd" in parts[i+1].lower() or "sở" in parts[i+1].lower() else i + 2
-                    
-                    if start_trich_yeu < len(parts):
-                        doan_duoi = " ".join(parts[start_trich_yeu:])
-                        
-                        # Tách lấy hạn xử lý nếu có mốc ngày ở cuối dòng
-                        if la_ngay_thang(parts[-1]):
-                            han_xl = parts[-1]
-                            trich_yeu = " ".join(parts[start_trich_yeu:-1])
-                        else:
-                            trich_yeu = doan_duoi
-                    break
 
-            if so_hieu and trich_yeu:
-                ds_vb_moi.append(
-                    f"🏷️ <b>Số hiệu:</b> {so_hieu}\n"
-                    f"📅 <b>Ngày đến:</b> {ngay_den}\n"
-                    f"⏳ <b>Hạn xử lý:</b> {han_xl}\n"
-                    f"📝 <b>Trích yếu:</b> {trich_yeu}"
+            # Chặn chống trùng (Tạm thời tắt để anh Hoàn test nghiệm thu văn bản đầu tiên)
+            # if so_hieu in ds_da_gui: continue 
+
+            # Tìm đối tượng ô HTML để bấm Click mở chi tiết
+            tds = row.find_elements(By.TAG_NAME, "td")
+            if tds:
+                # Tìm ô chứa Số hiệu hoặc Trích yếu để bấm (thường bám ô thứ 3 hoặc 4)
+                o_bam = tds[min(len(tds)-1, 3)] 
+                danh_sach_cho_bam.append({
+                    "so_hieu": so_hieu,
+                    "ngay_den": ngay_den,
+                    "web_element": o_bam
+                })
+
+        # Giới hạn click 3 văn bản mới nhất mỗi lần quét để không quá tải thời gian 5 phút
+        danh_sach_cho_bam = danh_sach_cho_bam[:3]
+
+        # 🚀 Bước 4: Thâm nhập từng văn bản mới để tìm hạn
+        for vb in danh_sach_cho_bam:
+            try:
+                # 🖱️ Click đi vào xem chi tiết
+                vb["web_element"].click()
+                time.sleep(10) # Đợi trang chi tiết load
+
+                # Đọc toàn bộ chữ trang chi tiết cào hạn xử lý
+                page_text = driver.find_element(By.TAG_NAME, "body").text
+                
+                han_xl_tim_thay = "Không rõ"
+                khoang_cach_ngay = 999 
+
+                # Thuật toán tìm ngày tháng hạn xử lý trong đoạn văn bản
+                tat_ca_ngay = re.findall(r'\b\d{1,2}/\d{1,2}/\d{4}\b', page_text)
+                for ngay_mau in tat_ca_ngay:
+                    doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_mau)
+                    if doi_tuong_ngay and doi_tuong_ngay >= ngay_hom_today:
+                        # Lấy cái ngày gần nhất (tính từ hôm nay trở đi) để làm hạn xử lý
+                        kc = (doi_tuong_ngay - ngay_hom_today).days
+                        if kc < khoang_cach_ngay:
+                            khoang_cach_ngay = kc
+                            han_xl_tim_thay = ngay_mau
+
+                # Phân loại văn bản
+                khung_chu_telegram = (
+                    f"🏷️ <b>Số hiệu:</b> {vb['so_hieu']}\n"
+                    f"📅 <b>Ngày đến:</b> {vb['ngay_den']}\n"
+                    f"⏳ <b>Hạn xử lý:</b> {han_xl_tim_thay}"
                 )
 
-        if ds_vb_moi:
-            # Gửi 3 cái test cho thoáng mắt anh Hoàn nhé!
-            noi_dung = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(ds_vb_moi[:3])
-            msg = (
-                f"🚀 <b>VĂN BẢN ĐẾN SỞ KH&CN (CẮT CHUỖI CHUẨN)</b>\n"
-                f"⏰ Quét lúc: {datetime.now().strftime('%H:%M %d/%m/%Y')}\n\n"
-                f"{noi_dung}"
-            )
-            gui_telegram(msg)
-            log.info("🔥 Đã bốc tách cắt chuỗi thành công!")
+                if 0 <= khoang_cach_ngay <= 2:
+                    vb_khan.append(f"🔴 <b>[GẤP HẠN CÒN {khoang_cach_ngay} NGÀY]</b>\n{khung_chu_telegram}")
+                else:
+                    vb_thuong.append(f"🔹 <b>[Bình thường]</b>\n{khung_chu_telegram}")
+
+                ds_da_gui.add(vb['so_hieu'])
+
+                # 🔙 Bấm nút Back quay ra danh sách chính
+                driver.back()
+                time.sleep(10)
+                # Vào lại iframe Main
+                driver.switch_to.default_content()
+                wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
+
+            except Exception as e_click:
+                log.warning(f"Lỗi bấm xem chi tiết văn bản: {e_click}")
+                continue
+
+        # 🚀 Bước 5: Bắn kết quả Gọn gàng lên Telegram
+        tin_khan = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_khan)
+        tin_thuong = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_thuong)
+
+        thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN V2</b>\n⏰ {datetime.now().strftime('%H:%M %d/%m/%Y')}\n\n"
+        
+        if vb_khan:
+            thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n{tin_khan}\n\n"
+        
+        if vb_thuong:
+            thong_bao_chot += f"📋 <b>DANH SÁCH VĂN BẢN THƯỜNG</b>\n\n{tin_thuong}"
+
+        if vb_khan or vb_thuong:
+            gui_telegram(thong_bao_chot)
+            luu_ds_da_gui(ds_da_gui)
+            log.info("🔥 Đã đẩy Radar V2 lên Telegram!")
+        else:
+            log.info("✅ Không có văn bản nào mới.")
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
