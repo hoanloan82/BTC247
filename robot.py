@@ -59,7 +59,6 @@ def la_ngay_thang(txt: str) -> bool:
 
 
 def chuyen_chuoi_thanh_ngay(txt_ngay: str):
-    """Đổi chuỗi 'dd/mm/yyyy' thành đối tượng datetime"""
     try:
         clean_txt = txt_ngay.replace("(", "").replace(")", "").strip()
         return datetime.strptime(clean_txt, "%d/%m/%Y")
@@ -68,11 +67,9 @@ def chuyen_chuoi_thanh_ngay(txt_ngay: str):
 
 
 def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.2 (SỬA LỖI TÍNH TOÁN NGÀY) ---")
+    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.3 (BẤM 1 VĂN BẢN DUY NHẤT) ---")
     driver = None
     ds_da_gui = tai_ds_da_gui()
-    
-    # Ép máy chủ GitHub tính toán chuẩn theo giờ Việt Nam (GMT+7)
     ngay_hom_nay = datetime.now() + timedelta(hours=7)
 
     try:
@@ -106,10 +103,10 @@ def chay_robot():
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
         rows = driver.find_elements(By.TAG_NAME, "tr")
         
-        vb_khan = []
-        vb_thuong = []
+        o_bam_duy_nhat = None
+        so_hieu_chot = ""
+        ngay_den_chot = ""
 
-        danh_sach_cho_bam = []
         for row in rows:
             txt_row = row.text.strip()
             if not txt_row or "số ký hiệu" in txt_row.lower() or "/" not in txt_row:
@@ -120,87 +117,65 @@ def chay_robot():
 
             so_hieu = ""
             ngay_den = ""
-            for i, p in enumerate(parts):
+            for p in parts:
                 if la_ngay_thang(p) and not ngay_den:
                     ngay_den = p
                 if "/" in p and not la_ngay_thang(p) and not so_hieu:
                     so_hieu = p
 
+            if so_hieu in ds_da_gui:
+                continue # Đã gửi rồi thì bỏ qua
+
             tds = row.find_elements(By.TAG_NAME, "td")
             if tds:
-                o_bam = tds[min(len(tds)-1, 3)] 
-                danh_sach_cho_bam.append({
-                    "so_hieu": so_hieu,
-                    "ngay_den": ngay_den,
-                    "web_element": o_bam
-                })
+                o_bam_duy_nhat = tds[min(len(tds)-1, 3)]
+                so_hieu_chot = so_hieu
+                ngay_den_chot = ngay_den
+                break # 🎯 CHỈ LẤY 1 CÁI MỚI NHẤT RỒI THOÁT RA ĐỂ CLICK!
 
-        danh_sach_cho_bam = danh_sach_cho_bam[:3]
+        # 🚀 Bước 3: Click xem chi tiết 1 văn bản mới nhất
+        if o_bam_duy_nhat:
+            o_bam_duy_nhat.click()
+            time.sleep(15)
 
-        # 🚀 Bước 3: Thâm nhập từng văn bản mới để tìm hạn
-        for vb in danh_sach_cho_bam:
-            try:
-                vb["web_element"].click()
-                time.sleep(10)
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            
+            han_xl_tim_thay = "Không rõ"
+            khoang_cach_ngay = 999 
 
-                page_text = driver.find_element(By.TAG_NAME, "body").text
-                
-                han_xl_tim_thay = "Không rõ"
-                khoang_cach_ngay = 999 
+            tat_ca_ngay = re.findall(r'\b\d{1,2}/\d{1,2}/\d{4}\b', page_text)
+            for ngay_mau in tat_ca_ngay:
+                doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_mau)
+                if doi_tuong_ngay:
+                    date_mau = doi_tuong_ngay.date()
+                    date_nay = ngay_hom_nay.date()
+                    
+                    if date_mau >= date_nay:
+                        kc = (date_mau - date_nay).days
+                        if kc < khoang_cach_ngay:
+                            khoang_cach_ngay = kc
+                            han_xl_tim_thay = ngay_mau
 
-                tat_ca_ngay = re.findall(r'\b\d{1,2}/\d{1,2}/\d{4}\b', page_text)
-                for ngay_mau in tat_ca_ngay:
-                    doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_mau)
-                    if doi_tuong_ngay:
-                        date_mau = doi_tuong_ngay.date()
-                        date_nay = ngay_hom_nay.date()
-                        
-                        if date_mau >= date_nay:
-                            kc = (date_mau - date_nay).days
-                            if kc < khoang_cach_ngay:
-                                khoang_cach_ngay = kc
-                                han_xl_tim_thay = ngay_mau
+            # Tạo khung tin nhắn
+            khung_chu_telegram = (
+                f"🏷️ <b>Số hiệu:</b> {so_hieu_chot}\n"
+                f"📅 <b>Ngày đến:</b> {ngay_den_chot}\n"
+                f"⏳ <b>Hạn xử lý:</b> {han_xl_tim_thay}"
+            )
 
-                khung_chu_telegram = (
-                    f"🏷️ <b>Số hiệu:</b> {vb['so_hieu']}\n"
-                    f"📅 <b>Ngày đến:</b> {vb['ngay_den']}\n"
-                    f"⏳ <b>Hạn xử lý:</b> {han_xl_tim_thay}"
-                )
+            thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN V2.3</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
 
-                if 0 <= khoang_cach_ngay <= 2:
-                    vb_khan.append(f"🔴 <b>[GẤP HẠN CÒN {khoang_cach_ngay} NGÀY]</b>\n{khung_chu_telegram}")
-                else:
-                    vb_thuong.append(f"🔹 <b>[Bình thường]</b>\n{khung_chu_telegram}")
+            if 0 <= khoang_cach_ngay <= 2:
+                thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n🔴 <b>[GẤP HẠN CÒN {khoang_cach_ngay} NGÀY]</b>\n{khung_chu_telegram}"
+            else:
+                thong_bao_chot += f"📋 <b>DANH SÁCH VĂN BẢN THƯỜNG</b>\n\n🔹 <b>[Bình thường]</b>\n{khung_chu_telegram}"
 
-                ds_da_gui.add(vb['so_hieu'])
-
-                driver.back()
-                time.sleep(10)
-                driver.switch_to.default_content()
-                wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
-
-            except Exception as e_click:
-                log.warning(f"Lỗi bấm xem chi tiết văn bản: {e_click}")
-                continue
-
-        # 🚀 Bước 4: Bắn kết quả lên Telegram
-        tin_khan = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_khan)
-        tin_thuong = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_thuong)
-
-        thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN V2.2</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
-        
-        if vb_khan:
-            thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n{tin_khan}\n\n"
-        
-        if vb_thuong:
-            thong_bao_chot += f"📋 <b>DANH SÁCH VĂN BẢN THƯỜNG</b>\n\n{tin_thuong}"
-
-        if vb_khan or vb_thuong:
             gui_telegram(thong_bao_chot)
+            ds_da_gui.add(so_hieu_chot)
             luu_ds_da_gui(ds_da_gui)
-            log.info("🔥 Đã đẩy Radar V2.2 lên Telegram!")
+            log.info("🔥 Đã đẩy Radar V2.3 lên Telegram!")
         else:
-            log.info("✅ Không có văn bản nào mới.")
+            log.info("✅ Không có văn bản nào mới cần bấm mở.")
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
