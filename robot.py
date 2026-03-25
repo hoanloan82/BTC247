@@ -59,7 +59,7 @@ def la_ngay_thang(txt: str) -> bool:
 
 
 def chuyen_chuoi_thanh_ngay(txt_ngay: str):
-    """Đổi chuỗi 'dd/mm/yyyy' thành đối tượng datetime để tính toán"""
+    """Đổi chuỗi 'dd/mm/yyyy' thành đối tượng datetime"""
     try:
         clean_txt = txt_ngay.replace("(", "").replace(")", "").strip()
         return datetime.strptime(clean_txt, "%d/%m/%Y")
@@ -68,11 +68,11 @@ def chuyen_chuoi_thanh_ngay(txt_ngay: str):
 
 
 def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.1 (ĐỒNG BỘ GIỜ VIỆT NAM) ---")
+    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.2 (SỬA LỖI TÍNH TOÁN NGÀY) ---")
     driver = None
     ds_da_gui = tai_ds_da_gui()
     
-    # Ép máy chủ GitHub tính toán theo giờ Việt Nam (GMT+7)
+    # Ép máy chủ GitHub tính toán chuẩn theo giờ Việt Nam (GMT+7)
     ngay_hom_nay = datetime.now() + timedelta(hours=7)
 
     try:
@@ -152,7 +152,6 @@ def chay_robot():
                 for ngay_mau in tat_ca_ngay:
                     doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_mau)
                     if doi_tuong_ngay:
-                        # Chuyển đổi hai đối tượng thời gian về dạng Date đơn thuần để so sánh khoảng cách ngày
                         date_mau = doi_tuong_ngay.date()
                         date_nay = ngay_hom_nay.date()
                         
@@ -188,7 +187,7 @@ def chay_robot():
         tin_khan = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_khan)
         tin_thuong = "\n\n➖➖➖➖➖➖➖➖➖➖\n\n".join(vb_thuong)
 
-        thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN V2.1</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
+        thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN V2.2</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
         
         if vb_khan:
             thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n{tin_khan}\n\n"
@@ -199,7 +198,7 @@ def chay_robot():
         if vb_khan or vb_thuong:
             gui_telegram(thong_bao_chot)
             luu_ds_da_gui(ds_da_gui)
-            log.info("🔥 Đã đẩy Radar V2.1 lên Telegram!")
+            log.info("🔥 Đã đẩy Radar V2.2 lên Telegram!")
         else:
             log.info("✅ Không có văn bản nào mới.")
 
