@@ -67,7 +67,7 @@ def chuyen_chuoi_thanh_ngay(txt_ngay: str):
 
 
 def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.5 (BẤM CHI TIẾT + F5 TẢI LẠI TRANG) ---")
+    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.6 (BỐI HẠN CHUẨN XÁC) ---")
     driver = None
     ds_da_gui = tai_ds_da_gui()
     ngay_hom_nay = datetime.now() + timedelta(hours=7)
@@ -95,9 +95,8 @@ def chay_robot():
             driver.execute_script("document.forms[0].submit()")
         time.sleep(15)
 
-        # CHỈ LẤY TỐI ĐA 2 VĂN BẢN MỚI NHẤT MỖI LẦN CHẠY ĐỂ TRÁNH QUÁ 5 PHÚT TIMEOUT
+        # QUÉT 2 VĂN BẢN MỚI NHẤT MỖI LẦN
         for lan_quet in range(2): 
-            # 🚀 Bước 2: Vào lại danh sách chính (Mỗi vòng lặp tải lại trang cho sạch Iframe)
             driver.get(URL_DANH_SACH)
             time.sleep(20)
 
@@ -131,36 +130,44 @@ def chay_robot():
                             trich_yeu = " ".join(parts[i+2:])
                         break
 
-                # 🛑 Chống bắn trùng
                 if so_hieu in ds_da_gui:
                     continue
 
                 tds = row.find_elements(By.TAG_NAME, "td")
                 if tds:
                     tim_thay_vb_moi = True
-                    o_bam = tds[min(len(tds)-1, 3)] # Lấy ô Trích yếu để bấm
+                    o_bam = tds[min(len(tds)-1, 3)] 
                     
-                    # 👉 Bấm mở xem chi tiết văn bản
                     o_bam.click()
                     time.sleep(15)
 
-                    # Bới chữ lấy hạn xử lý
                     page_text = driver.find_element(By.TAG_NAME, "body").text
-                    han_xl_tim_thay = "Không rõ"
+                    page_text_lower = page_text.lower()
+                    
+                    han_xl_tim_thay = "Không có hạn"
                     khoang_cach_ngay = 999
 
-                    tat_ca_ngay = re.findall(r'\b\d{1,2}/\d{1,2}/\d{4}\b', page_text)
-                    for ngay_mau in tat_ca_ngay:
-                        doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_mau)
-                        if doi_tuong_ngay:
-                            date_mau = doi_tuong_ngay.date()
-                            date_nay = ngay_hom_nay.date()
-                            
-                            if date_mau >= date_nay:
-                                kc = (date_mau - date_nay).days
-                                if kc < khoang_cach_ngay:
-                                    khoang_cach_ngay = kc
-                                    han_xl_tim_thay = ngay_mau
+                    # 🎯 CHIẾN THUẬT QUÉT TỪ KHÓA CẠNH NGÀY THÁNG
+                    mau_tim_ngay = r'(\b\d{1,2}/\d{1,2}/\d{4}\b)'
+
+                    for match in re.finditer(mau_tim_ngay, page_text):
+                        ngay_van_ban = match.group(1)
+                        vi_tri_ngay = match.start()
+                        
+                        # Cắt 35 ký tự bên trái (đứng trước ngày) xem có từ khóa liên quan đến "trước", "hạn" hay không
+                        chu_ngu_canh = page_text_lower[max(0, vi_tri_ngay - 35):vi_tri_ngay]
+                        
+                        if "trước" in chu_ngu_canh or "hạn" in chu_ngu_canh or "báo cáo" in chu_ngu_canh:
+                            doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_van_ban)
+                            if doi_tuong_ngay:
+                                date_mau = doi_tuong_ngay.date()
+                                date_nay = ngay_hom_today = (datetime.now() + timedelta(hours=7)).date()
+                                
+                                if date_mau >= date_nay:
+                                    kc = (date_mau - date_nay).days
+                                    if kc < khoang_cach_ngay:
+                                        khoang_cach_ngay = kc
+                                        han_xl_tim_thay = ngay_van_ban
 
                     # Soạn tin đẩy lên Telegram
                     khung_chu_telegram = (
@@ -170,7 +177,7 @@ def chay_robot():
                         f"⏳ <b>Hạn xử lý:</b> {han_xl_tim_thay}"
                     )
 
-                    thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN (CHI TIẾT)</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
+                    thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN (V2.6)</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
 
                     if 0 <= khoang_cach_ngay <= 2:
                         thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n🔴 <b>[GẤP HẠN CÒN {khoang_cach_ngay} NGÀY]</b>\n{khung_chu_telegram}"
@@ -180,11 +187,11 @@ def chay_robot():
                     gui_telegram(thong_bao_chot)
                     ds_da_gui.add(so_hieu)
                     luu_ds_da_gui(ds_da_gui)
-                    break # Văng ra ngoài vòng lặp hàng để F5 tải lại trang danh sách mới
+                    break 
 
             if not tim_thay_vb_moi:
                 log.info("✅ Không tìm thấy văn bản mới ở vòng quét này.")
-                break # Không còn văn bản mới thì dừng luôn không quét vòng thứ 2 nữa
+                break 
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
