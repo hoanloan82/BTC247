@@ -1,11 +1,39 @@
-⏱️ Timeout ngắt tự động (Timeout minutes):
+name: Robot Văn Bản Đến - Sở KH&CN V2.5
 
-Ép hệ thống GitHub rút phích cắm điện của Robot sau đúng 5 phút nếu xảy ra lỗi đơ Selenium hoặc nghẽn mạng.
+on:
+  schedule:
+    # Chạy giờ hành chính Việt Nam (Thứ 2 - Thứ 6)
+    - cron: '0 1,3,10 * * 1-5'
+    - cron: '30 6,8 * * 1-5'
+  workflow_dispatch: # Bấm tay chạy thử
 
-🛌 Lịch làm việc thông minh (Cron Giờ hành chính):
+jobs:
+  run-robot:
+    runs-on: ubuntu-latest
 
-Chỉ cho Robot làm việc từ thứ Hai đến thứ Sáu (trong khung giờ hành chính 7h30 - 17h00). Đêm đến và cuối tuần cho Robot đi ngủ lấy sức.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-🚦 Cơ chế chống trùng lặp dữ liệu (Duplicate Check):
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-Chỉ bắn tin nhắn Telegram khi xuất hiện văn bản thực sự mới tinh, không quét đi quét lại rác dữ liệu cũ.
+      - name: Cài đặt Google Chrome ổn định cho GitHub
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Cài đặt thư viện Python
+        run: |
+          pip install selenium webdriver-manager requests
+
+      - name: Kích hoạt Robot quét văn bản
+        timeout-minutes: 5 # Bảo hiểm 5 phút
+        run: python robot.py
+        env:
+          SKHCN_USER: ${{ secrets.SKHCN_USER }}
+          SKHCN_PASS: ${{ secrets.SKHCN_PASS }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
