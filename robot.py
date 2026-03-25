@@ -36,9 +36,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ============================================================
-# 3. QUẢN LÝ TRẠNG THÁI (Chống trùng lặp)
-# ============================================================
 def tai_ds_da_gui() -> set:
     try:
         with open(FILE_DA_GUI, "r", encoding="utf-8") as f:
@@ -67,9 +64,6 @@ def gui_telegram(msg: str) -> bool:
         return False
 
 
-# ============================================================
-# 4. ROBOT CHÍNH
-# ============================================================
 def chay_robot():
     log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN ---")
     driver = None
@@ -87,7 +81,6 @@ def chay_robot():
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
         wait = WebDriverWait(driver, 30)
 
-        # 1. Đăng nhập
         driver.get(URL_LOGIN)
         wait.until(EC.presence_of_element_located((By.NAME, "Username")))
         driver.find_element(By.NAME, "Username").send_keys(USER_NAME)
@@ -99,9 +92,8 @@ def chay_robot():
             driver.execute_script("document.forms[0].submit()")
         time.sleep(15)
 
-        # 2. Vào danh sách văn bản
         driver.get(URL_DANH_SACH)
-        time.sleep(35) # Chờ load hẳn bảng
+        time.sleep(35)
 
         driver.switch_to.default_content()
         wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
@@ -118,7 +110,7 @@ def chay_robot():
             txt_row = row.text.strip()
             if "số ký hiệu" in txt_row.lower() or "/" not in txt_row: continue
 
-            # 🎯 KHÓA CHẾT TỌA ĐỘ CỘT THEO ẢNH CHỤP THÁM THÍNH
+            # 🎯 CHỐT TỌA ĐỘ CỘT THÁM THÍNH
             so_kh     = tds[3].text.strip() # Lấy ở cột 4
             trich_yeu = tds[6].text.strip() # Lấy ở cột 7
 
@@ -131,7 +123,7 @@ def chay_robot():
 
         if ds_vb_moi:
             so_luong = len(ds_vb_moi)
-            noi_dung = "\n---\n".join(ds_vb_moi[:5]) # Lấy tối đa 5 tin nhắn để tránh spam lụt chat
+            noi_dung = "\n---\n".join(ds_vb_moi[:5]) 
             msg = (
                 f"🚀 <b>SỞ KH&CN: CÓ {so_luong} VĂN BẢN ĐẾN MỚI</b>\n"
                 f"⏰ Cập nhật: {datetime.now().strftime('%H:%M %d/%m/%Y')}\n\n"
@@ -141,7 +133,7 @@ def chay_robot():
             luu_ds_da_gui(ds_da_gui)
             log.info(f"🔥 Đã đẩy {so_luong} văn bản chuẩn lên Telegram!")
         else:
-            log.info("✅ Không có văn bản mới (Hoặc hệ thống đã nhớ văn bản cũ rồi).")
+            log.info("✅ Không có văn bản mới (Hệ thống đã nhớ văn bản cũ).")
 
     except Exception as e:
         log.error(f"❌ Lỗi: {e}")
