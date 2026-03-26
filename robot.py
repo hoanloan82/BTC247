@@ -3,6 +3,7 @@ import requests
 import logging
 import pandas as pd
 import mplfinance as mpf
+import time
 from datetime import datetime
 from google import genai
 
@@ -60,35 +61,44 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         return None
 
 
-# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (ĐÃ SỬA LOGIC ĐA KHUNG THỜI GIAN) ---
+# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (XỬ LÝ LỖI CHẠM TRẦN 429) ---
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        # Thay đổi Prompt để ép AI đọc đa khung thời gian 15p - 1H - 4H
-        prompt = f"""
-        Bạn là một chuyên gia lướt sóng Crypto chuyên nghiệp (Scalper/Day Trading).
-        Hãy đọc số liệu giá thực tế hiện tại:
+    # Thiết lập cơ chế lặp lại 3 lần nếu Google chặn truy cập miễn phí
+    for lan_thu in range(3): 
+        try:
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            
+            prompt = f"""
+            Bạn là một chuyên gia lướt sóng Crypto chuyên nghiệp (Scalper/Day Trading).
+            Hãy đọc số liệu giá thực tế hiện tại:
 
-        📊 BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
-        📊 ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
+            📊 BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
+            📊 ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
 
-        Nhiệm vụ của bạn là đưa ra nhận định kết hợp ĐA KHUNG THỜI GIAN (15P, 1H và 4H):
-        1. Xu hướng Vi mô (Khung 15P): Tìm điểm kích hoạt lệnh lướt nhanh ngắn hạn.
-        2. Xu hướng Ngắn hạn (Khung 1H): Xu hướng gãy hay tiếp tục tăng/giảm?
-        3. Xu hướng Tổng quan (Khung 4H): Giá đang chạm vùng hỗ trợ hay kháng cự lớn nào không?
+            Nhiệm vụ của bạn là đưa ra nhận định kết hợp ĐA KHUNG THỜI GIAN (15P, 1H và 4H):
+            1. Xu hướng Vi mô (Khung 15P): Điểm kích hoạt lệnh lướt nhanh ngắn hạn.
+            2. Xu hướng Ngắn hạn (Khung 1H): Đỉnh/Đáy hoặc Xu hướng gãy cấu trúc không?
+            3. Xu hướng Tổng quan (Khung 4H): Chạm vùng hỗ trợ/kháng cự lớn không?
 
-        👉 Hãy đưa ra 2 Kịch bản chiến lược (LONG hoặc SHORT) rõ ràng cùng điểm cắt lỗ (Stop loss) để bảo vệ vốn.
-        Trình bày bằng tiếng Việt, súc tích, ngắn gọn, chia gạch đầu dòng rõ ràng để dễ đọc trên màn hình điện thoại.
-        """
+            👉 Hãy đưa ra 2 Kịch bản chiến lược (LONG hoặc SHORT) rõ ràng cùng điểm cắt lỗ (Stop loss) cụ thể.
+            Trình bày bằng tiếng Việt, súc tích, ngắn gọn, chia gạch đầu dòng rõ ràng để dễ đọc trên điện thoại.
+            """
 
-        # Chuyển đổi model sang phiên bản ổn định chuyên sâu gemini-2.0-flash
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return response.text
-    except Exception as e:
-        return f"⚠️ Lỗi AI phân tích: {e}"
+            response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+            return response.text
+
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                log.warning(f"⚠️ Chạm giới hạn miễn phí lần {lan_thu + 1}. Đang nghỉ 40s để thử lại...")
+                time.sleep(40) # Chờ 40 giây cho Google reset giới hạn rồi lặp lại
+                continue
+            else:
+                return f"⚠️ Lỗi AI phân tích: {e}"
+                
+    return "⚠️ Không thể phân tích sau 3 lần thử do hết hạn mức API miễn phí (429)."
 
 
 # --- 📱 4. HÀM GỬI ẢNH KÈM CHỮ VỀ TELEGRAM ---
@@ -107,7 +117,7 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
 
 # --- 🏁 HÀM CHẠY CHÍNH ---
 def chay_robot_crypto():
-    log.info("--- BẮT ĐẦU CHẠY ROBOT NẾN ĐA KHUNG THỜI GIAN ---")
+    log.info("--- BẮT ĐẦU CHẠY ROBOT ĐA KHUNG THỜI GIAN ---")
     
     du_lieu_gia = lay_gia_chuan_thi_truong()
     if not du_lieu_gia:
@@ -117,7 +127,7 @@ def chay_robot_crypto():
     # 1. Nhờ AI phân tích đa khung thời gian
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
     
-    # 2. Vẽ biểu đồ nến 1H cho BTC làm mẫu hiển thị
+    # 2. Vẽ biểu đồ nến 1H cho BTC
     anh_chart = ve_bieu_do_nen_1h("BTCUSDT")
 
     # Nội dung gửi đi được định dạng HTML để hiển thị đẹp trên Telegram
