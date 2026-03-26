@@ -7,13 +7,14 @@ import time
 from datetime import datetime
 from google import genai
 
-# 🔑 Cấu hình GitHub Secrets
+# 🔑 Lấy cấu hình bảo mật từ GitHub Secrets
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
+
 
 def lay_gia_chuan_thi_truong():
     try:
@@ -27,6 +28,7 @@ def lay_gia_chuan_thi_truong():
     except Exception as e:
         log.error(f"Lỗi CoinGecko: {e}")
         return None
+
 
 def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
     try:
@@ -52,6 +54,7 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         log.error(f"Lỗi vẽ biểu đồ 1H cho {symbol}: {e}")
         return None
 
+
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
@@ -60,14 +63,15 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
             client = genai.Client(api_key=GEMINI_API_KEY)
             
             prompt = f"""
-            Bạn là chuyên gia lướt sóng Crypto (Scalper). Đọc giá hiện tại:
-            📊 BTC: ${data_crypto['btc']['price']:,} ({data_crypto['btc']['change']:.2f}%)
-            📊 ETH: ${data_crypto['eth']['price']:,} ({data_crypto['eth']['change']:.2f}%)
+            Bạn là một trader chuyên nghiệp (Scalper). Hãy đọc số liệu giá thực tế:
 
-            Hãy đưa ra nhận định ĐA KHUNG GIỜ (15P, 1H, 4H):
-            - Xu hướng ngắn hạn (15P & 1H): Tín hiệu mua hay bán?
-            - Xu hướng lớn (4H): Vùng cản/hỗ trợ quan trọng?
-            - Kịch bản LONG/SHORT và điểm cắt lỗ (Stop Loss).
+            📊 BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
+            📊 ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
+
+            Nhiệm vụ của bạn là nhận định ĐA KHUNG THỜI GIAN (15P, 1H và 4H):
+            1. Xu hướng Vi mô (15P) & Ngắn hạn (1H): Tín hiệu mua hay bán?
+            2. Xu hướng Tổng quan (4H): Vùng cản/hỗ trợ lớn gần nhất?
+            3. Hãy đề xuất 2 kịch bản (LONG/SHORT) thực tế nhất kèm mức điểm cắt lỗ (Stop Loss).
 
             Trình bày bằng tiếng Việt, súc tích, gạch đầu dòng rõ ràng.
             """
@@ -77,13 +81,14 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
 
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                log.warning(f"⚠️ Quá tải API miễn phí. Chờ 45 giây thử lại lần {lan_thu + 1}...")
+                log.warning(f"⚠️ Chạm giới hạn miễn phí. Nghỉ 45s thử lại lần {lan_thu + 1}...")
                 time.sleep(45)
                 continue
             else:
                 return f"⚠️ Lỗi AI phân tích: {e}"
                 
-    return "⚠️ Hết hạn mức API sau 3 lần thử (429)."
+    return "⚠️ Hết hạn mức API sau 3 lần thử lại (429)."
+
 
 def gui_anh_kem_tin_nhan(photo_path, caption_text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
@@ -96,10 +101,12 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
     except Exception as e:
         log.error(f"Lỗi gửi Telegram: {e}")
 
+
 def chay_robot_crypto():
     log.info("--- BẮT ĐẦU CHẠY ROBOT ---")
     du_lieu_gia = lay_gia_chuan_thi_truong()
-    if not du_lieu_gia: return
+    if not du_lieu_gia:
+        return
 
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
     anh_chart = ve_bieu_do_nen_1h("BTCUSDT")
@@ -119,6 +126,7 @@ def chay_robot_crypto():
     else:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
+
 
 if __name__ == "__main__":
     chay_robot_crypto()
