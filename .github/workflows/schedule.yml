@@ -1,31 +1,39 @@
-name: Crypto Bot
+name: 🤖 Crypto Signal Bot
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Chạy 30 phút một lần
-  workflow_dispatch: # Nút chạy tay trên web
+    # Chạy mỗi 15 phút (UTC) — tương đương 7:00–24:00 giờ Việt Nam
+    - cron: '*/15 * * * *'
+  workflow_dispatch:   # Cho phép chạy thủ công từ GitHub UI
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # Tối đa 10 phút mỗi lần chạy
 
     steps:
-    - name: 📥 Tải code về
-      uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 🐍 Cài đặt Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: 🐍 Thiết lập Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: 📦 Cài đặt thư viện
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests pandas mplfinance google-genai ccxt
+      - name: 📦 Cài thư viện
+        run: pip install -r requirements.txt
 
-    - name: 🚀 Chạy Robot
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      run: python robot.py
+      - name: 🚀 Chạy bot
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
+
+      - name: 💾 Lưu log tín hiệu (anti-spam state)
+        uses: actions/cache@v4
+        with:
+          path: signal_log.json
+          key: signal-log-${{ github.run_id }}
+          restore-keys: signal-log-
