@@ -4,7 +4,7 @@ import base64
 import requests
 import logging
 import pandas as pd
-import pandas_ta as ta
+import ta as ta_lib
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -90,14 +90,26 @@ def lay_gia_spot(symbol: str) -> dict | None:
 # 2. TÍNH CHỈ BÁO KỸ THUẬT
 # ═══════════════════════════════════════════════════════
 def tinh_chi_bao(df: pd.DataFrame) -> pd.DataFrame:
-    """Tính RSI, MACD, Bollinger Bands, ATR vào dataframe."""
+    """Tính RSI, MACD, Bollinger Bands, ATR, SMA, EMA vào dataframe."""
     df = df.copy()
-    df.ta.rsi(length=14, append=True)
-    df.ta.macd(fast=12, slow=26, signal=9, append=True)
-    df.ta.bbands(length=20, std=2, append=True)
-    df.ta.atr(length=14, append=True)
-    df.ta.sma(length=20, append=True)
-    df.ta.ema(length=9, append=True)
+    # RSI
+    df["RSI_14"] = ta_lib.momentum.RSIIndicator(df["Close"], window=14).rsi()
+    # MACD
+    macd_obj = ta_lib.trend.MACD(df["Close"], window_fast=12, window_slow=26, window_sign=9)
+    df["MACD"]      = macd_obj.macd()
+    df["MACDh"]     = macd_obj.macd_diff()
+    df["MACDs"]     = macd_obj.macd_signal()
+    # Bollinger Bands
+    bb_obj = ta_lib.volatility.BollingerBands(df["Close"], window=20, window_dev=2)
+    df["BBU"] = bb_obj.bollinger_hband()
+    df["BBL"] = bb_obj.bollinger_lband()
+    df["BBM"] = bb_obj.bollinger_mavg()
+    # ATR
+    df["ATR_14"] = ta_lib.volatility.AverageTrueRange(
+        df["High"], df["Low"], df["Close"], window=14).average_true_range()
+    # SMA / EMA
+    df["SMA_20"] = ta_lib.trend.SMAIndicator(df["Close"], window=20).sma_indicator()
+    df["EMA_9"]  = ta_lib.trend.EMAIndicator(df["Close"], window=9).ema_indicator()
     return df
 
 
@@ -105,37 +117,24 @@ def lay_ket_qua_chi_bao(df: pd.DataFrame) -> dict:
     """Trích xuất giá trị chỉ báo của nến cuối cùng."""
     last = df.iloc[-1]
     prev = df.iloc[-2]
-
-    # Tên cột động từ pandas_ta
-    rsi_col   = [c for c in df.columns if c.startswith("RSI_")]
-    macd_col  = [c for c in df.columns if c.startswith("MACD_") and "h" not in c.lower() and "s" not in c.lower()]
-    macdh_col = [c for c in df.columns if "MACDh_" in c]
-    macds_col = [c for c in df.columns if "MACDs_" in c]
-    bbu_col   = [c for c in df.columns if c.startswith("BBU_")]
-    bbl_col   = [c for c in df.columns if c.startswith("BBL_")]
-    bbm_col   = [c for c in df.columns if c.startswith("BBM_")]
-    atr_col   = [c for c in df.columns if c.startswith("ATRr_")]
-    sma_col   = [c for c in df.columns if c.startswith("SMA_")]
-    ema_col   = [c for c in df.columns if c.startswith("EMA_")]
-
     return {
-        "close":       last["Close"],
-        "open":        last["Open"],
-        "high":        last["High"],
-        "low":         last["Low"],
-        "volume":      last["Volume"],
-        "vol_tb20":    df["Volume"].iloc[-20:].mean(),
-        "rsi":         last[rsi_col[0]]   if rsi_col   else None,
-        "macd":        last[macd_col[0]]  if macd_col  else None,
-        "macd_hist":   last[macdh_col[0]] if macdh_col else None,
-        "macd_signal": last[macds_col[0]] if macds_col else None,
-        "macd_prev_hist": prev[macdh_col[0]] if macdh_col else None,
-        "bb_upper":    last[bbu_col[0]]   if bbu_col   else None,
-        "bb_lower":    last[bbl_col[0]]   if bbl_col   else None,
-        "bb_mid":      last[bbm_col[0]]   if bbm_col   else None,
-        "atr":         last[atr_col[0]]   if atr_col   else None,
-        "sma20":       last[sma_col[0]]   if sma_col   else None,
-        "ema9":        last[ema_col[0]]   if ema_col   else None,
+        "close":          last["Close"],
+        "open":           last["Open"],
+        "high":           last["High"],
+        "low":            last["Low"],
+        "volume":         last["Volume"],
+        "vol_tb20":       df["Volume"].iloc[-20:].mean(),
+        "rsi":            last.get("RSI_14"),
+        "macd":           last.get("MACD"),
+        "macd_hist":      last.get("MACDh"),
+        "macd_signal":    last.get("MACDs"),
+        "macd_prev_hist": prev.get("MACDh"),
+        "bb_upper":       last.get("BBU"),
+        "bb_lower":       last.get("BBL"),
+        "bb_mid":         last.get("BBM"),
+        "atr":            last.get("ATR_14"),
+        "sma20":          last.get("SMA_20"),
+        "ema9":           last.get("EMA_9"),
     }
 
 
@@ -268,29 +267,23 @@ def ve_chart_day_du(df: pd.DataFrame, symbol: str, interval: str, cb: dict) -> s
         add_plots = []
         if "EMA_9" in df_plot.columns:
             add_plots.append(mpf.make_addplot(df_plot["EMA_9"], color='orange', width=1.2, label='EMA9'))
-        sma_col = [c for c in df_plot.columns if c.startswith("SMA_")]
-        if sma_col:
-            add_plots.append(mpf.make_addplot(df_plot[sma_col[0]], color='blue', width=1, linestyle='--', label='SMA20'))
+        if "SMA_20" in df_plot.columns:
+            add_plots.append(mpf.make_addplot(df_plot["SMA_20"], color='blue', width=1, linestyle='--', label='SMA20'))
 
         # RSI panel
-        rsi_col = [c for c in df_plot.columns if c.startswith("RSI_")]
-        if rsi_col:
-            add_plots.append(mpf.make_addplot(df_plot[rsi_col[0]], panel=2, color='purple',
+        if "RSI_14" in df_plot.columns:
+            add_plots.append(mpf.make_addplot(df_plot["RSI_14"], panel=2, color='purple',
                                                ylabel='RSI', ylim=(0, 100)))
-            # Đường 30/70
             add_plots.append(mpf.make_addplot([70]*len(df_plot), panel=2, color='red', linestyle='--', width=0.7))
             add_plots.append(mpf.make_addplot([30]*len(df_plot), panel=2, color='green', linestyle='--', width=0.7))
 
         # MACD histogram panel
-        macdh_col = [c for c in df_plot.columns if "MACDh_" in c]
-        macds_col = [c for c in df_plot.columns if "MACDs_" in c]
-        macd_col  = [c for c in df_plot.columns if c.startswith("MACD_") and "h" not in c and "s" not in c]
-        if macdh_col and macd_col and macds_col:
-            colors_hist = ['green' if v >= 0 else 'red' for v in df_plot[macdh_col[0]]]
-            add_plots.append(mpf.make_addplot(df_plot[macdh_col[0]], panel=3, type='bar',
+        if "MACDh" in df_plot.columns and "MACD" in df_plot.columns:
+            colors_hist = ['green' if v >= 0 else 'red' for v in df_plot["MACDh"]]
+            add_plots.append(mpf.make_addplot(df_plot["MACDh"], panel=3, type='bar',
                                                color=colors_hist, ylabel='MACD'))
-            add_plots.append(mpf.make_addplot(df_plot[macd_col[0]], panel=3, color='blue', width=0.8))
-            add_plots.append(mpf.make_addplot(df_plot[macds_col[0]], panel=3, color='orange', width=0.8))
+            add_plots.append(mpf.make_addplot(df_plot["MACD"], panel=3, color='blue', width=0.8))
+            add_plots.append(mpf.make_addplot(df_plot["MACDs"], panel=3, color='orange', width=0.8))
 
         mc = mpf.make_marketcolors(up='#26a69a', down='#ef5350',
                                     edge='inherit', wick='inherit',
@@ -312,13 +305,11 @@ def ve_chart_day_du(df: pd.DataFrame, symbol: str, interval: str, cb: dict) -> s
         )
 
         # Thêm BB bands lên price panel
-        bbu = [c for c in df_plot.columns if c.startswith("BBU_")]
-        bbl = [c for c in df_plot.columns if c.startswith("BBL_")]
-        if bbu and bbl and axes:
+        if "BBU" in df_plot.columns and "BBL" in df_plot.columns and axes:
             ax = axes[0]
             ax.fill_between(range(len(df_plot)),
-                            df_plot[bbu[0]].values,
-                            df_plot[bbl[0]].values,
+                            df_plot["BBU"].values,
+                            df_plot["BBL"].values,
                             alpha=0.08, color='cyan')
 
         fig.savefig(file_path, dpi=130, bbox_inches='tight',
