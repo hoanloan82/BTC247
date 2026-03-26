@@ -2,8 +2,8 @@ name: Quân Sư Crypto Tự Động
 
 on:
   schedule:
-    - cron: '0 * * * *' # Cứ mỗi 1 tiếng Robot sẽ thức dậy lấy số liệu và gửi phân tích một lần
-  workflow_dispatch: # Nút bấm chạy bằng tay ngay lập tức
+    - cron: '0 * * * *' # Cứ 1 tiếng Robot sẽ tự thức dậy lấy nến 1H và báo cho anh một lần
+  workflow_dispatch: # Nút bấm để anh tự chạy bằng tay bất cứ lúc nào anh thích
 
 jobs:
   run-crypto:
@@ -18,14 +18,15 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Cài đặt thư viện lấy giá và AI
+    - name: Cài đặt thư viện vẽ ảnh nến và AI
       run: |
         python -m pip install --upgrade pip
-        pip install requests google-genai
+        # Nạp đủ bộ thư viện vẽ ảnh nến và gọi Gemini
+        pip install requests google-genai pandas matplotlib mplfinance
 
     - name: Chạy Quân Sư AI Crypto
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      run: python robot.py # Chạy thẳng file robot.py chứa code Crypto của anh Hoàn!
+      run: python robot.py # Chạy file robot.py chứa code vẽ nến 1H của anh Hoàn
