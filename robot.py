@@ -15,7 +15,6 @@ GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-
 def lay_gia_chuan_thi_truong():
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true"
@@ -28,7 +27,6 @@ def lay_gia_chuan_thi_truong():
     except Exception as e:
         log.error(f"Lỗi CoinGecko: {e}")
         return None
-
 
 def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
     try:
@@ -54,11 +52,9 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         log.error(f"Lỗi vẽ biểu đồ 1H cho {symbol}: {e}")
         return None
 
-
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
-    # Thử lại 3 lần nếu Google Free Tier bị quá tải (Lỗi 429)
     for lan_thu in range(3): 
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
@@ -68,11 +64,12 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
             📊 BTC: ${data_crypto['btc']['price']:,} ({data_crypto['btc']['change']:.2f}%)
             📊 ETH: ${data_crypto['eth']['price']:,} ({data_crypto['eth']['change']:.2f}%)
 
-            Nhận định ĐA KHUNG GIỜ (15P, 1H, 4H):
-            - Ngắn hạn (15P & 1H): Tín hiệu mua hay bán?
-            - Xu hướng lớn (4H): Có chạm vùng cản hay hỗ trợ mạnh không?
-            - Kịch bản LONG/SHORT và điểm Stop Loss.
-            Trình bày tiếng Việt, gạch đầu dòng ngắn gọn.
+            Hãy đưa ra nhận định ĐA KHUNG GIỜ (15P, 1H, 4H):
+            - Xu hướng ngắn hạn (15P & 1H): Tín hiệu mua hay bán?
+            - Xu hướng lớn (4H): Vùng cản/hỗ trợ quan trọng?
+            - Kịch bản LONG/SHORT và điểm cắt lỗ (Stop Loss).
+
+            Trình bày bằng tiếng Việt, súc tích, gạch đầu dòng rõ ràng.
             """
 
             response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
@@ -80,14 +77,13 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
 
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                log.warning(f"⚠️ Chờ 45 giây reset API lần {lan_thu + 1}...")
+                log.warning(f"⚠️ Quá tải API miễn phí. Chờ 45 giây thử lại lần {lan_thu + 1}...")
                 time.sleep(45)
                 continue
             else:
                 return f"⚠️ Lỗi AI phân tích: {e}"
                 
-    return "⚠️ Không thể phân tích sau 3 lần thử do hết hạn mức API miễn phí (429)."
-
+    return "⚠️ Hết hạn mức API sau 3 lần thử (429)."
 
 def gui_anh_kem_tin_nhan(photo_path, caption_text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
@@ -100,14 +96,10 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
     except Exception as e:
         log.error(f"Lỗi gửi Telegram: {e}")
 
-
 def chay_robot_crypto():
     log.info("--- BẮT ĐẦU CHẠY ROBOT ---")
-    
     du_lieu_gia = lay_gia_chuan_thi_truong()
-    if not du_lieu_gia:
-        log.error("Không lấy được dữ liệu.")
-        return
+    if not du_lieu_gia: return
 
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
     anh_chart = ve_bieu_do_nen_1h("BTCUSDT")
@@ -127,7 +119,6 @@ def chay_robot_crypto():
     else:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
-
 
 if __name__ == "__main__":
     chay_robot_crypto()
