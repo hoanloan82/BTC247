@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from google import genai
 
-# 🔑 Cấu hình Khóa bảo mật lấy từ GitHub Secrets
+# 🔑 Cấu hình GitHub Secrets
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
@@ -16,7 +16,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 
 
-# --- 📈 1. HÀM LẤY GIÁ THUẦN TÚY (DÙNG ĐỂ TEXT BÁO CÁO) ---
 def lay_gia_chuan_thi_truong():
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true"
@@ -31,7 +30,6 @@ def lay_gia_chuan_thi_truong():
         return None
 
 
-# --- 📊 2. HÀM VẼ BIỂU ĐỒ NẾN 1H (LẤY 24 CÂY NẾN GẦN NHẤT) ---
 def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
     try:
         base_url = "https://api1.binance.com/api/v3"
@@ -57,38 +55,33 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         return None
 
 
-# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (CÓ CHỐNG LỖI 429) ---
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
+    # Thử lại 3 lần nếu Google Free Tier bị quá tải (Lỗi 429)
     for lan_thu in range(3): 
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
             
             prompt = f"""
-            Bạn là một chuyên gia lướt sóng Crypto chuyên nghiệp (Scalper/Day Trading).
-            Hãy đọc số liệu giá thực tế hiện tại:
+            Bạn là chuyên gia lướt sóng Crypto (Scalper). Đọc giá hiện tại:
+            📊 BTC: ${data_crypto['btc']['price']:,} ({data_crypto['btc']['change']:.2f}%)
+            📊 ETH: ${data_crypto['eth']['price']:,} ({data_crypto['eth']['change']:.2f}%)
 
-            📊 BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
-            📊 ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
-
-            Nhiệm vụ của bạn là đưa ra nhận định kết hợp ĐA KHUNG THỜI GIAN (15P, 1H và 4H):
-            1. Xu hướng Vi mô (Khung 15P): Điểm kích hoạt lệnh lướt nhanh ngắn hạn.
-            2. Xu hướng Ngắn hạn (Khung 1H): Đỉnh/Đáy hoặc Xu hướng gãy cấu trúc không?
-            3. Xu hướng Tổng quan (Khung 4H): Chạm vùng hỗ trợ/kháng cự lớn không?
-
-            👉 Hãy đưa ra 2 Kịch bản chiến lược (LONG hoặc SHORT) rõ ràng cùng điểm cắt lỗ (Stop loss) cụ thể.
-            Trình bày bằng tiếng Việt, súc tích, ngắn gọn, chia gạch đầu dòng rõ ràng để dễ đọc trên điện thoại.
+            Nhận định ĐA KHUNG GIỜ (15P, 1H, 4H):
+            - Ngắn hạn (15P & 1H): Tín hiệu mua hay bán?
+            - Xu hướng lớn (4H): Có chạm vùng cản hay hỗ trợ mạnh không?
+            - Kịch bản LONG/SHORT và điểm Stop Loss.
+            Trình bày tiếng Việt, gạch đầu dòng ngắn gọn.
             """
 
             response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
             return response.text
 
         except Exception as e:
-            error_str = str(e)
-            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                log.warning(f"⚠️ Chạm giới hạn miễn phí lần {lan_thu + 1}. Đang nghỉ 40s để thử lại...")
-                time.sleep(40)
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                log.warning(f"⚠️ Chờ 45 giây reset API lần {lan_thu + 1}...")
+                time.sleep(45)
                 continue
             else:
                 return f"⚠️ Lỗi AI phân tích: {e}"
@@ -96,7 +89,6 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
     return "⚠️ Không thể phân tích sau 3 lần thử do hết hạn mức API miễn phí (429)."
 
 
-# --- 📱 4. HÀM GỬI ẢNH KÈM CHỮ VỀ TELEGRAM ---
 def gui_anh_kem_tin_nhan(photo_path, caption_text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
     try:
@@ -109,13 +101,12 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
         log.error(f"Lỗi gửi Telegram: {e}")
 
 
-# --- 🏁 HÀM CHẠY CHÍNH ---
 def chay_robot_crypto():
-    log.info("--- BẮT ĐẦU CHẠY ROBOT ĐA KHUNG THỜI GIAN ---")
+    log.info("--- BẮT ĐẦU CHẠY ROBOT ---")
     
     du_lieu_gia = lay_gia_chuan_thi_truong()
     if not du_lieu_gia:
-        log.error("Không lấy được dữ liệu thị trường.")
+        log.error("Không lấy được dữ liệu.")
         return
 
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
@@ -136,6 +127,7 @@ def chay_robot_crypto():
     else:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
+
 
 if __name__ == "__main__":
     chay_robot_crypto()
