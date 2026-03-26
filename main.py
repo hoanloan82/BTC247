@@ -41,24 +41,27 @@ log = logging.getLogger(__name__)
 # 1. LẤY DỮ LIỆU OHLCV TỪ BINANCE
 # ═══════════════════════════════════════════════════════
 def lay_ohlcv(symbol: str, interval: str, limit: int = 100) -> pd.DataFrame | None:
-    """Kéo dữ liệu nến từ Binance."""
+    """Kéo dữ liệu nến từ Binance (thử nhiều endpoint)."""
     urls = [
-        f"https://api1.binance.com/api/v3/klines",
-        f"https://api2.binance.com/api/v3/klines",
-        f"https://api3.binance.com/api/v3/klines",
+        "https://data-api.binance.vision/api/v3/klines",  # public mirror, không bị chặn
+        "https://api.binance.com/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines",
+        "https://api2.binance.com/api/v3/klines",
+        "https://api3.binance.com/api/v3/klines",
     ]
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     for url in urls:
         try:
             r = requests.get(url, params=params, timeout=15)
             data = r.json()
-            if not isinstance(data, list):
+            if not isinstance(data, list) or len(data) == 0:
                 continue
             cols = ['Time','Open','High','Low','Close','Volume','_','_','_','_','_','_']
             df = pd.DataFrame(data, columns=cols)
             df['Time'] = pd.to_datetime(df['Time'], unit='ms')
             df.set_index('Time', inplace=True)
             df = df[['Open','High','Low','Close','Volume']].astype(float)
+            log.info(f"✅ OHLCV {symbol} {interval} từ {url.split('/')[2]}")
             return df
         except Exception as e:
             log.warning(f"Binance endpoint lỗi ({url}): {e}")
@@ -67,23 +70,46 @@ def lay_ohlcv(symbol: str, interval: str, limit: int = 100) -> pd.DataFrame | No
 
 
 def lay_gia_spot(symbol: str) -> dict | None:
-    """Lấy giá spot hiện tại + thay đổi 24h."""
+    """Lấy giá spot hiện tại. Thử Binance trước, fallback CoinGecko."""
+    # Thử Binance
+    for base in ["https://api.binance.com", "https://api1.binance.com",
+                 "https://api2.binance.com", "https://api3.binance.com"]:
+        try:
+            r = requests.get(f"{base}/api/v3/ticker/24hr",
+                             params={"symbol": symbol}, timeout=10)
+            d = r.json()
+            if "lastPrice" in d:
+                return {
+                    "price":      float(d["lastPrice"]),
+                    "change_24h": float(d["priceChangePercent"]),
+                    "high_24h":   float(d["highPrice"]),
+                    "low_24h":    float(d["lowPrice"]),
+                    "volume_24h": float(d["quoteVolume"]),
+                }
+        except Exception as e:
+            log.warning(f"Binance spot {base} lỗi: {e}")
+
+    # Fallback CoinGecko
+    log.warning(f"Binance không trả được giá {symbol}, thử CoinGecko...")
     try:
+        coin_id = "bitcoin" if "BTC" in symbol else "ethereum"
         r = requests.get(
-            "https://api.binance.com/api/v3/ticker/24hr",
-            params={"symbol": symbol}, timeout=10
+            f"https://api.coingecko.com/api/v3/simple/price"
+            f"?ids={coin_id}&vs_currencies=usd&include_24hr_change=true"
+            f"&include_24hr_vol=true&include_high_low=true",
+            timeout=15
         )
-        d = r.json()
+        d = r.json()[coin_id]
         return {
-            "price": float(d["lastPrice"]),
-            "change_24h": float(d["priceChangePercent"]),
-            "high_24h": float(d["highPrice"]),
-            "low_24h": float(d["lowPrice"]),
-            "volume_24h": float(d["quoteVolume"]),
+            "price":      float(d["usd"]),
+            "change_24h": float(d.get("usd_24h_change", 0)),
+            "high_24h":   float(d.get("usd_24h_high", d["usd"])),
+            "low_24h":    float(d.get("usd_24h_low",  d["usd"])),
+            "volume_24h": float(d.get("usd_24h_vol",  0)),
         }
     except Exception as e:
-        log.error(f"Lỗi lấy giá spot {symbol}: {e}")
-        return None
+        log.error(f"CoinGecko fallback lỗi: {e}")
+    return None
 
 
 # ═══════════════════════════════════════════════════════
