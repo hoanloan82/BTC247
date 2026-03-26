@@ -2,7 +2,7 @@ name: Crypto Bot
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Chạy mỗi 30 phút một lần (để tránh 429)
+    - cron: '*/30 * * * *' # Chạy mỗi 30 phút một lần
   workflow_dispatch: # Cho phép bấm nút chạy tay
 
 jobs:
@@ -16,16 +16,17 @@ jobs:
     - name: 🐍 Cài đặt Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11' # 👈 Nâng lên 3.11 để hỗ trợ pandas-ta tốt hơn
 
     - name: 📦 Cài đặt thư viện
       run: |
         python -m pip install --upgrade pip
-        pip install requests pandas pandas-ta mplfinance google-genai ccxt
-
+        pip install requests pandas==2.1.4 mplfinance google-genai ccxt
+        pip install pandas-ta==0.3.14b0 # 👈 Ép cài phiên bản này để không bị lỗi máy ảo
+        
     - name: 🚀 Chạy Robot
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      run: python robot.py # 👈 KHỚP CHÍNH XÁC VỚI TÊN FILE PYTHON CỦA ANH
+      run: python robot.py
