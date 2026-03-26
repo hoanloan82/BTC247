@@ -1,39 +1,31 @@
-name: Robot Văn Bản Đến - Sở KH&CN V2.5
+name: Quân Sư Crypto Tự Động
 
 on:
   schedule:
-    # Chạy giờ hành chính Việt Nam (Thứ 2 - Thứ 6)
-    - cron: '0 1,3,10 * * 1-5'
-    - cron: '30 6,8 * * 1-5'
-  workflow_dispatch: # Bấm tay chạy thử
+    - cron: '0 * * * *' # Cứ mỗi 1 tiếng Robot sẽ thức dậy lấy số liệu và gửi phân tích một lần
+  workflow_dispatch: # Nút bấm chạy bằng tay ngay lập tức
 
 jobs:
-  run-robot:
+  run-crypto:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Tải code về
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+    - name: Cài đặt Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
 
-      - name: Cài đặt Google Chrome ổn định cho GitHub
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+    - name: Cài đặt thư viện
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests google-genai
 
-      - name: Cài đặt thư viện Python
-        run: |
-          pip install selenium webdriver-manager requests
-
-      - name: Kích hoạt Robot quét văn bản
-        timeout-minutes: 5 # Bảo hiểm 5 phút
-        run: python robot.py
-        env:
-          SKHCN_USER: ${{ secrets.SKHCN_USER }}
-          SKHCN_PASS: ${{ secrets.SKHCN_PASS }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    - name: Chạy Quân Sư AI
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: python crypto_bot.py
