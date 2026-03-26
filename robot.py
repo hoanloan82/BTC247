@@ -1,204 +1,111 @@
-import time
 import os
-import json
-import logging
 import requests
-import re
-from datetime import datetime, timedelta
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+import logging
+from datetime import datetime
+from google import genai
 
-# ============================================================
-# CẤU HÌNH HỆ THỐNG
-# ============================================================
-URL_LOGIN     = "https://hscvkhcn.dienbien.gov.vn/names.nsf?Login"
-URL_DANH_SACH = "https://hscvkhcn.dienbien.gov.vn/qlvb/vbden.nsf/default?openform&frm=Private_ChoXL?openForm"
-
-USER_NAME        = os.environ.get("SKHCN_USER", "")
-PASS_WORD        = os.environ.get("SKHCN_PASS", "")
+# 🔑 Cấu hình các Khóa bảo mật
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-FILE_DA_GUI = "da_gui.json"
+GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-
-def tai_ds_da_gui() -> set:
+# --- 📈 1. HÀM LẤY DỮ LIỆU GIÁ TỪ BINANCE ---
+def lay_gia_binance(symbol="BTCUSDT"):
     try:
-        with open(FILE_DA_GUI, "r", encoding="utf-8") as f:
-            return set(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
+        # Lấy giá hiện tại
+        res_price = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}")
+        price_data = res_price.json()
+        current_price = float(price_data['price'])
 
-
-def luu_ds_da_gui(ds: set):
-    with open(FILE_DA_GUI, "w", encoding="utf-8") as f:
-        json.dump(list(ds), f, ensure_ascii=False, indent=2)
-
-
-def gui_telegram(msg: str) -> bool:
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return False
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        resp = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=15)
-        return resp.status_code == 200
-    except Exception:
-        return False
-
-
-def la_ngay_thang(txt: str) -> bool:
-    t = txt.replace("(", "").replace(")", "").strip()
-    return bool(re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', t))
-
-
-def chuyen_chuoi_thanh_ngay(txt_ngay: str):
-    try:
-        clean_txt = txt_ngay.replace("(", "").replace(")", "").strip()
-        return datetime.strptime(clean_txt, "%d/%m/%Y")
-    except ValueError:
+        # Lấy thống kê 24h (Cao nhất, thấp nhất, % thay đổi)
+        res_24h = requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}")
+        data_24h = res_24h.json()
+        
+        return {
+            "symbol": symbol,
+            "current_price": current_price,
+            "high_24h": float(data_24h['highPrice']),
+            "low_24h": float(data_24h['lowPrice']),
+            "price_change_percent": float(data_24h['priceChangePercent']),
+            "volume_24h": float(data_24h['volume'])
+        }
+    except Exception as e:
+        log.error(f"Lỗi lấy dữ liệu Binance cho {symbol}: {e}")
         return None
 
-
-def chay_robot():
-    log.info("--- BẮT ĐẦU QUÉT HỆ THỐNG SỞ KH&CN V2.7 (SIÊU CHẶN NHẦM LẪN HẠN) ---")
-    driver = None
-    ds_da_gui = tai_ds_da_gui()
-    ngay_hom_nay = datetime.now() + timedelta(hours=7)
+# --- 🤖 2. HÀM NHỜ GEMINI AI ĐÁNH GIÁ THỊ TRƯỜNG ---
+def danh_gia_thi_truong_bang_ai(btc_data, eth_data):
+    if not GEMINI_API_KEY:
+        return "⚠️ Chưa cấu hình GEMINI_API_KEY để AI đọc số liệu!"
 
     try:
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument('--ignore-certificate-errors')
-        options.add_argument('--ignore-ssl-errors')
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        wait = WebDriverWait(driver, 30)
+        prompt = f"""
+        Bạn là một chuyên gia phân tích kỹ thuật thị trường Crypto (Tiền điện tử). 
+        Hãy đọc số liệu thống kê hiện tại của BTC và ETH sau đây:
 
-        # 🚀 Bước 1: Đăng nhập
-        driver.get(URL_LOGIN)
-        wait.until(EC.presence_of_element_located((By.NAME, "Username")))
-        driver.find_element(By.NAME, "Username").send_keys(USER_NAME)
-        driver.find_element(By.NAME, "Password").send_keys(PASS_WORD)
-        try:
-            driver.find_element(By.XPATH, "//input[@type='submit']").click()
-        except Exception:
-            driver.execute_script("document.forms[0].submit()")
-        time.sleep(15)
+        📊 Dữ liệu BTC/USDT:
+        - Giá hiện tại: {btc_data['current_price']}
+        - Cao nhất 24h: {btc_data['high_24h']}
+        - Thấp nhất 24h: {btc_data['low_24h']}
+        - Biến động % 24h: {btc_data['price_change_percent']}%
 
-        # QUÉT 2 VĂN BẢN MỚI NHẤT
-        for lan_quet in range(2): 
-            driver.get(URL_DANH_SACH)
-            time.sleep(20)
+        📊 Dữ liệu ETH/USDT:
+        - Giá hiện tại: {eth_data['current_price']}
+        - Cao nhất 24h: {eth_data['high_24h']}
+        - Thấp nhất 24h: {eth_data['low_24h']}
+        - Biến động % 24h: {eth_data['price_change_percent']}%
 
-            driver.switch_to.default_content()
-            wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "Main")))
+        Dựa trên cấu trúc giá hiện tại so với biên độ 24h, hãy đưa ra một đánh giá khách quan cho nhà đầu tư (Anh Hoàn):
+        1. Xu hướng ngắn hạn hiện tại đang là gì (Tăng, Giảm hay Đi ngang - Sideway)?
+        2. Vùng giá hiện tại đang gần Kháng cự (Đỉnh 24h) hay Hỗ trợ (Đáy 24h) hơn? 
+        3. Dựa trên lý thuyết Phân tích kỹ thuật thuần túy, bối cảnh này có lợi thế xác suất nghiêng về phe LONG hay phe SHORT hơn, hoặc nên KIÊN NHẪN ĐỨNG NGOÀI quan sát?
+        
+        Hãy trình bày ngắn gọn, chia đề mục rõ ràng bằng tiếng Việt. Lưu ý kèm cảnh báo rủi ro về Quản lý vốn (Stop loss).
+        """
 
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "tr")))
-            rows = driver.find_elements(By.TAG_NAME, "tr")
-
-            tim_thay_vb_moi = False
-            
-            for row in rows:
-                txt_row = row.text.strip()
-                if not txt_row or "số ký hiệu" in txt_row.lower() or "/" not in txt_row:
-                    continue
-
-                parts = txt_row.split()
-                if len(parts) < 4: continue
-
-                so_hieu = ""
-                ngay_den = ""
-                trich_yeu = ""
-
-                if len(parts) > 1 and la_ngay_thang(parts[1]):
-                    ngay_den = parts[1]
-
-                for i, p in enumerate(parts):
-                    if "/" in p and not la_ngay_thang(p) and not so_hieu:
-                        so_hieu = p
-                        if (i + 2) < len(parts):
-                            trich_yeu = " ".join(parts[i+2:])
-                        break
-
-                if so_hieu in ds_da_gui:
-                    continue
-
-                tds = row.find_elements(By.TAG_NAME, "td")
-                if tds:
-                    tim_thay_vb_moi = True
-                    o_bam = tds[min(len(tds)-1, 3)] 
-                    
-                    o_bam.click()
-                    time.sleep(15)
-
-                    page_text = driver.find_element(By.TAG_NAME, "body").text
-                    page_text_lower = page_text.lower()
-                    
-                    han_xl_tim_thay = "Không có hạn"
-                    khoang_cach_ngay = 999
-
-                    mau_tim_ngay = r'(\b\d{1,2}/\d{1,2}/\d{4}\b)'
-
-                    for match in re.finditer(mau_tim_ngay, page_text):
-                        ngay_van_ban = match.group(1)
-                        vi_tri_ngay = match.start()
-                        
-                        # Cắt 30 ký tự bên trái
-                        chu_ngu_canh = page_text_lower[max(0, vi_tri_ngay - 30):vi_tri_ngay]
-                        
-                        # 🎯 ĐIỀU KIỆN CHẶT CHẼ: Phải chứa chữ "trước ngày" cụ thể
-                        if "trước ngày" in chu_ngu_canh:
-                            doi_tuong_ngay = chuyen_chuoi_thanh_ngay(ngay_van_ban)
-                            if doi_tuong_ngay:
-                                date_mau = doi_tuong_ngay.date()
-                                date_nay = ngay_hom_nay.date()
-                                
-                                # Chặn không cho lấy ngày hôm nay làm hạn xử lý (Khoảng cách phải >= 1 ngày)
-                                if date_mau > date_nay:
-                                    kc = (date_mau - date_nay).days
-                                    if kc < khoang_cach_ngay:
-                                        khoang_cach_ngay = kc
-                                        han_xl_tim_thay = ngay_van_ban
-
-                    # Soạn tin đẩy lên Telegram
-                    khung_chu_telegram = (
-                        f"🏷️ <b>Số hiệu:</b> {so_hieu}\n"
-                        f"📅 <b>Ngày đến:</b> {ngay_den}\n"
-                        f"📝 <b>Trích yếu:</b> {trich_yeu[:200]}...\n"
-                        f"⏳ <b>Hạn xử lý:</b> {han_xl_tim_thay}"
-                    )
-
-                    thong_bao_chot = f"🚀 <b>QUÉT VĂN BẢN ĐẾN SỞ KH&CN (V2.7)</b>\n⏰ {ngay_hom_nay.strftime('%H:%M %d/%m/%Y')}\n\n"
-
-                    if 0 < khoang_cach_ngay <= 2: # Chặn lấy khoảng cách = 0 (trùng ngày hiện tại)
-                        thong_bao_chot += f"🚨 <b>DANH SÁCH VĂN BẢN KHẨN (HẠN ≤ 2 NGÀY)</b> 🚨\n\n🔴 <b>[GẤP HẠN CÒN {khoang_cach_ngay} NGÀY]</b>\n{khung_chu_telegram}"
-                    else:
-                        thong_bao_chot += f"📋 <b>DANH SÁCH VĂN BẢN THƯỜNG</b>\n\n🔹 <b>[Bình thường]</b>\n{khung_chu_telegram}"
-
-                    gui_telegram(thong_bao_chot)
-                    ds_da_gui.add(so_hieu)
-                    luu_ds_da_gui(ds_da_gui)
-                    break 
-
-            if not tim_thay_vb_moi:
-                log.info("✅ Không tìm thấy văn bản mới.")
-                break 
-
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        return response.text
     except Exception as e:
-        log.error(f"❌ Lỗi: {e}")
-    finally:
-        if driver:
-            driver.quit()
+        log.error(f"Lỗi phân tích AI: {e}")
+        return f"⚠️ Không phân tích được số liệu do lỗi AI: {e}"
+
+# --- 📱 3. HÀM GỬI THÔNG BÁO TELEGRAM ---
+def gui_telegram(message):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        requests.post(url, data=data, timeout=30)
+    except Exception as e:
+        log.error(f"Lỗi gửi Telegram: {e}")
+
+# --- 🏁 HÀM CHẠY CHÍNH ---
+def chay_robot_crypto():
+    log.info("--- BẮT ĐẦU CHẠY ROBOT QUÂN SƯ CRYPTO ---")
+    
+    btc_info = lay_gia_binance("BTCUSDT")
+    eth_info = lay_gia_binance("ETHUSDT")
+
+    if btc_info and eth_info:
+        nhan_dinh_ai = danh_gia_thi_truong_bang_ai(btc_info, eth_info)
+        
+        message = (
+            f"💰 <b>BẢN TIN QUÂN SƯ CRYPTO CHO ANH HOÀN</b>\n"
+            f"📅 <i>Cập nhật: {datetime.now().strftime('%H:%M %d/%m/%Y')}</i>\n"
+            f"─────────────────\n\n"
+            f"{nhan_dinh_ai}"
+        )
+        gui_telegram(message)
+    else:
+        gui_telegram("⚠️ Robot không lấy được dữ liệu giá từ Binance, anh Hoàn kiểm tra lại kết nối mạng nhé!")
 
 if __name__ == "__main__":
-    chay_robot()
+    chay_robot_crypto()
