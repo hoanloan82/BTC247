@@ -60,28 +60,32 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         return None
 
 
-# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (THÊM YÊU CẦU ĐỌC NẾN 1H) ---
+# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (ĐÃ SỬA LOGIC ĐA KHUNG THỜI GIAN) ---
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
         
+        # Thay đổi Prompt để ép AI đọc đa khung thời gian 15p - 1H - 4H
         prompt = f"""
-        Bạn là một trader chuyên nghiệp lướt sóng ngắn hạn (Scalping/Day trading).
-        Hãy đọc số liệu giá thực tế hiện tại của BTC và ETH:
+        Bạn là một chuyên gia lướt sóng Crypto chuyên nghiệp (Scalper/Day Trading).
+        Hãy đọc số liệu giá thực tế hiện tại:
 
-        📊 Dữ liệu BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
-        📊 Dữ liệu ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
+        📊 BTC: ${data_crypto['btc']['price']:,} (Biến động 24h: {data_crypto['btc']['change']:.2f}%)
+        📊 ETH: ${data_crypto['eth']['price']:,} (Biến động 24h: {data_crypto['eth']['change']:.2f}%)
 
-        Dựa trên khung đồ thị 1 giờ (1H), hãy phân tích thật ngắn gọn và thực dụng:
-        1. Xu hướng ngắn hạn trong vài tiếng tới (Tăng nhẹ, giảm nhẹ hay đi ngang)?
-        2. Dấu hiệu nến hiện tại có ủng hộ cho lệnh LONG hay lệnh SHORT không? (Nêu rõ điều kiện cắt lỗ Stop loss để bảo vệ vốn).
-        
-        Trình bày bằng tiếng Việt, súc tích, chia gạch đầu dòng rõ ràng.
+        Nhiệm vụ của bạn là đưa ra nhận định kết hợp ĐA KHUNG THỜI GIAN (15P, 1H và 4H):
+        1. Xu hướng Vi mô (Khung 15P): Tìm điểm kích hoạt lệnh lướt nhanh ngắn hạn.
+        2. Xu hướng Ngắn hạn (Khung 1H): Xu hướng gãy hay tiếp tục tăng/giảm?
+        3. Xu hướng Tổng quan (Khung 4H): Giá đang chạm vùng hỗ trợ hay kháng cự lớn nào không?
+
+        👉 Hãy đưa ra 2 Kịch bản chiến lược (LONG hoặc SHORT) rõ ràng cùng điểm cắt lỗ (Stop loss) để bảo vệ vốn.
+        Trình bày bằng tiếng Việt, súc tích, ngắn gọn, chia gạch đầu dòng rõ ràng để dễ đọc trên màn hình điện thoại.
         """
 
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        # Chuyển đổi model sang phiên bản ổn định chuyên sâu gemini-2.0-flash
+        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
         return response.text
     except Exception as e:
         return f"⚠️ Lỗi AI phân tích: {e}"
@@ -93,7 +97,7 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
         with open(photo_path, 'rb') as photo:
-            # Cắt bớt chữ nếu Gemini viết quá dài (Telegram giới hạn caption < 1024 kí tự)
+            # Giới hạn caption Telegram tránh bị lỗi vượt tải 1024 ký tự
             truncated_caption = caption_text[:1020] 
             data = {'chat_id': TELEGRAM_CHAT_ID, 'caption': truncated_caption, 'parse_mode': 'HTML'}
             requests.post(url, files={'photo': photo}, data=data, timeout=30)
@@ -103,22 +107,22 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
 
 # --- 🏁 HÀM CHẠY CHÍNH ---
 def chay_robot_crypto():
-    log.info("--- BẮT ĐẦU CHẠY ROBOT NẾN 1H ---")
+    log.info("--- BẮT ĐẦU CHẠY ROBOT NẾN ĐA KHUNG THỜI GIAN ---")
     
     du_lieu_gia = lay_gia_chuan_thi_truong()
     if not du_lieu_gia:
         log.error("Không lấy được dữ liệu thị trường.")
         return
 
-    # 1. Nhờ AI phân tích
+    # 1. Nhờ AI phân tích đa khung thời gian
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
     
-    # 2. Vẽ biểu đồ nến 1H cho BTC
+    # 2. Vẽ biểu đồ nến 1H cho BTC làm mẫu hiển thị
     anh_chart = ve_bieu_do_nen_1h("BTCUSDT")
 
-    # Nội dung gửi đi
+    # Nội dung gửi đi được định dạng HTML để hiển thị đẹp trên Telegram
     message = (
-        f"📊 <b>QUÂN SƯ CRYPTO - NẾN 1H (ANH HOÀN)</b>\n"
+        f"📊 <b>QUÂN SƯ CRYPTO - ĐA KHUNG GIỜ (ANH HOÀN)</b>\n"
         f"📅 <i>{datetime.now().strftime('%H:%M %d/%m/%Y')}</i>\n"
         f"─────────────────\n\n"
         f"📌 <b>BTC:</b> ${du_lieu_gia['btc']['price']:,} ({du_lieu_gia['btc']['change']:.2f}%)\n"
@@ -129,9 +133,8 @@ def chay_robot_crypto():
     # 3. Gửi lên Telegram
     if anh_chart and os.path.exists(anh_chart):
         gui_anh_kem_tin_nhan(anh_chart, message)
-        os.remove(anh_chart) # Xóa ảnh tạm
+        os.remove(anh_chart) # Xóa file rác sau khi gửi thành công
     else:
-        # Nếu lỗi vẽ ảnh thì gửi tin nhắn Text tạm thời
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
 
