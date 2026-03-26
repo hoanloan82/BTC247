@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Tải code về
+    - name: Tải code từ kho về máy chủ GitHub
       uses: actions/checkout@v4
 
     - name: Cài đặt Python
@@ -18,14 +18,14 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Cài đặt thư viện
+    - name: Cài đặt thư viện lấy giá và AI
       run: |
         python -m pip install --upgrade pip
         pip install requests google-genai
 
-    - name: Chạy Quân Sư AI
+    - name: Chạy Quân Sư AI Crypto
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      run: python crypto_bot.py
+      run: python robot.py # Chạy thẳng file robot.py chứa code Crypto của anh Hoàn!
