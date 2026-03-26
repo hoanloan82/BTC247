@@ -34,13 +34,11 @@ def lay_gia_chuan_thi_truong():
 # --- 📊 2. HÀM VẼ BIỂU ĐỒ NẾN 1H (LẤY 24 CÂY NẾN GẦN NHẤT) ---
 def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
     try:
-        # Lấy dữ liệu nến 1 tiếng (interval=1h) từ Binance công khai
         base_url = "https://api1.binance.com/api/v3"
         url = f"{base_url}/klines?symbol={symbol}&interval=1h&limit=24"
         response = requests.get(url, timeout=20)
         data = response.json()
         
-        # Tạo bảng dữ liệu chuẩn (Time, Open, High, Low, Close, Volume)
         df = pd.DataFrame(data, columns=['Time', 'Open', 'High', 'Low', 'Close', 'Volume', '_', '_', '_', '_', '_', '_'])
         df['Time'] = pd.to_datetime(df['Time'], unit='ms')
         df.set_index('Time', inplace=True)
@@ -48,11 +46,9 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         
         file_name = f"chart_{symbol}_1h.png"
         
-        # Chỉnh màu nến: Xanh (tăng), Đỏ (giảm)
         mc = mpf.make_marketcolors(up='green', down='red', edge='inherit', wick='inherit', volume='in', inherit=True)
         s  = mpf.make_mpf_style(base_mpf_style='charles', marketcolors=mc, gridstyle='--', y_on_right=False)
         
-        # Xuất ảnh nến 1H
         mpf.plot(df, type='candle', style=s, title=f"\n📊 BIEU DO NEN {symbol} (Khung 1H)", savefig=file_name, volume=True)
         
         return file_name
@@ -61,11 +57,10 @@ def ve_bieu_do_nen_1h(symbol="BTCUSDT"):
         return None
 
 
-# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (XỬ LÝ LỖI CHẠM TRẦN 429) ---
+# --- 🤖 3. HÀM NHỜ GEMINI AI PHÂN TÍCH (CÓ CHỐNG LỖI 429) ---
 def danh_gia_thi_truong_bang_ai(data_crypto):
     if not GEMINI_API_KEY: return "⚠️ Chưa cấu hình GEMINI_API_KEY!"
 
-    # Thiết lập cơ chế lặp lại 3 lần nếu Google chặn truy cập miễn phí
     for lan_thu in range(3): 
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
@@ -93,7 +88,7 @@ def danh_gia_thi_truong_bang_ai(data_crypto):
             error_str = str(e)
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 log.warning(f"⚠️ Chạm giới hạn miễn phí lần {lan_thu + 1}. Đang nghỉ 40s để thử lại...")
-                time.sleep(40) # Chờ 40 giây cho Google reset giới hạn rồi lặp lại
+                time.sleep(40)
                 continue
             else:
                 return f"⚠️ Lỗi AI phân tích: {e}"
@@ -107,7 +102,6 @@ def gui_anh_kem_tin_nhan(photo_path, caption_text):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
         with open(photo_path, 'rb') as photo:
-            # Giới hạn caption Telegram tránh bị lỗi vượt tải 1024 ký tự
             truncated_caption = caption_text[:1020] 
             data = {'chat_id': TELEGRAM_CHAT_ID, 'caption': truncated_caption, 'parse_mode': 'HTML'}
             requests.post(url, files={'photo': photo}, data=data, timeout=30)
@@ -124,13 +118,9 @@ def chay_robot_crypto():
         log.error("Không lấy được dữ liệu thị trường.")
         return
 
-    # 1. Nhờ AI phân tích đa khung thời gian
     nhan_dinh_ai = danh_gia_thi_truong_bang_ai(du_lieu_gia)
-    
-    # 2. Vẽ biểu đồ nến 1H cho BTC
     anh_chart = ve_bieu_do_nen_1h("BTCUSDT")
 
-    # Nội dung gửi đi được định dạng HTML để hiển thị đẹp trên Telegram
     message = (
         f"📊 <b>QUÂN SƯ CRYPTO - ĐA KHUNG GIỜ (ANH HOÀN)</b>\n"
         f"📅 <i>{datetime.now().strftime('%H:%M %d/%m/%Y')}</i>\n"
@@ -140,10 +130,9 @@ def chay_robot_crypto():
         f"{nhan_dinh_ai}"
     )
 
-    # 3. Gửi lên Telegram
     if anh_chart and os.path.exists(anh_chart):
         gui_anh_kem_tin_nhan(anh_chart, message)
-        os.remove(anh_chart) # Xóa file rác sau khi gửi thành công
+        os.remove(anh_chart)
     else:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
