@@ -1,0 +1,6 @@
+requests>=2.31.0
+pandas>=2.0.0
+pandas-ta>=0.3.14b
+mplfinance>=0.12.10b0
+matplotlib>=3.7.0
+google-genai>=1.0.0
